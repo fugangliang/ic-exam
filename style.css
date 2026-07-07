@@ -19,7 +19,11 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
-  padding-bottom: env(safe-area-inset-bottom);
+  /* ホーム画面起動時はステータスバー（ノッチ）下まで描画されるため、セーフエリア分を空ける */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .screen { display: none; max-width: 640px; margin: 0 auto; padding: 12px 16px 32px; }
