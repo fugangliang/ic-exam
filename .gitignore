@@ -1,0 +1,10 @@
+# 問題データ・撮影画像は公開しない（市販問題集由来・私的使用限定のため）
+# GitHub Pages は private リポジトリでも公開URLになる。アプリ本体のみ push する
+data/
+inbox/
+processed/
+
+.DS_Store
+
+# 要件定義書はローカル管理のみ（公開リポジトリに載せない）
+docs/
