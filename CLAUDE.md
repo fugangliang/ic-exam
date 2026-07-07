@@ -29,6 +29,8 @@ docs/       要件定義書
 - 問題JSONを追加したら: `python3 scripts/validate_questions.py data/questions/*.json`
 - `app/` 内のファイル構成を変えたら `sw.js` の SHELL リストと VERSION を更新する。
 - 動作確認: `python3 -m http.server 8000 -d app` → http://localhost:8000/
+- デプロイ: `scripts/deploy.sh`（テスト→main push→app/ を gh-pages に subtree split して push）。
+  公開URL: https://fugangliang.github.io/ic-exam/ （publicリポジトリのため docs/ もgit対象外。配信されるのは app/ のみ）
 
 ## 問題JSONスキーマ
 
