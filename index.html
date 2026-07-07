@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1e3a5f">
+<title>IC試験対策</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="IC試験対策">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ホーム画面 -->
+<section id="screen-home" class="screen active">
+  <header class="app-header">
+    <h1>IC試験対策</h1>
+    <button class="icon-btn" data-nav="data" title="データ管理">⚙</button>
+  </header>
+
+  <div id="home-stats" class="stats-bar"></div>
+
+  <div class="card">
+    <h2>出題モード</h2>
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="random">全分野ランダム</button>
+      <button class="mode-tab" data-mode="category">分野指定</button>
+    </div>
+
+    <div id="category-selectors" class="hidden">
+      <label>分野
+        <select id="sel-category"></select>
+      </label>
+      <label>小分類
+        <select id="sel-subcategory"><option value="">すべて</option></select>
+      </label>
+    </div>
+
+    <label>出題数
+      <select id="sel-count">
+        <option value="10" selected>10問</option>
+        <option value="20">20問</option>
+        <option value="30">30問</option>
+        <option value="0">全問</option>
+      </select>
+    </label>
+
+    <button id="btn-start" class="primary-btn">開始</button>
+    <p id="home-message" class="muted"></p>
+  </div>
+</section>
+
+<!-- 出題画面 -->
+<section id="screen-quiz" class="screen">
+  <header class="quiz-header">
+    <button class="icon-btn" id="btn-quit" title="中断">✕</button>
+    <div id="quiz-progress"></div>
+    <div id="quiz-timer">0:00</div>
+  </header>
+
+  <div id="quiz-meta" class="muted"></div>
+  <div id="quiz-body" class="question-body"></div>
+  <div id="quiz-choices" class="choices"></div>
+
+  <!-- 自信度（解答直後・正誤表示前） -->
+  <div id="confidence-panel" class="hidden">
+    <p class="confidence-label">自信度は？</p>
+    <div class="confidence-btns">
+      <button class="conf-btn conf-sure" data-conf="sure">確信</button>
+      <button class="conf-btn conf-unsure" data-conf="unsure">迷い</button>
+      <button class="conf-btn conf-guess" data-conf="guess">勘</button>
+    </div>
+  </div>
+
+  <!-- 正誤・解説 -->
+  <div id="result-panel" class="hidden">
+    <div id="result-verdict"></div>
+    <div id="result-explanation" class="explanation"></div>
+    <button id="btn-next" class="primary-btn">次の問題</button>
+  </div>
+</section>
+
+<!-- セッション結果 -->
+<section id="screen-summary" class="screen">
+  <header class="app-header"><h1>結果</h1></header>
+  <div id="summary-content"></div>
+  <button class="primary-btn" data-nav="home">ホームへ戻る</button>
+</section>
+
+<!-- データ管理 -->
+<section id="screen-data" class="screen">
+  <header class="app-header">
+    <button class="icon-btn" data-nav="home">←</button>
+    <h1>データ管理</h1>
+  </header>
+
+  <div class="card">
+    <h2>問題データ import</h2>
+    <p class="muted">問題JSON（配列 または {questions:[...]}）を追加・上書き（id単位）</p>
+    <input type="file" id="file-import" accept=".json,application/json">
+    <p id="import-result" class="muted"></p>
+  </div>
+
+  <div class="card">
+    <h2>全データ export</h2>
+    <p class="muted">問題＋解答履歴の全バックアップ（機種変更・復元用）</p>
+    <button id="btn-export" class="secondary-btn">exportファイルをダウンロード</button>
+  </div>
+
+  <div class="card">
+    <h2>バックアップ復元</h2>
+    <p class="muted">exportファイルから問題＋解答履歴を復元</p>
+    <input type="file" id="file-restore" accept=".json,application/json">
+    <p id="restore-result" class="muted"></p>
+  </div>
+
+  <div class="card">
+    <h2>サンプルデータ</h2>
+    <p class="muted">動作確認用のサンプル問題（学習には使用しないこと）</p>
+    <button id="btn-sample" class="secondary-btn">サンプル問題を読み込む</button>
+  </div>
+
+  <div class="card danger-zone">
+    <h2>初期化</h2>
+    <button id="btn-clear-attempts" class="danger-btn">解答履歴を全削除</button>
+    <button id="btn-clear-all" class="danger-btn">全データ削除</button>
+  </div>
+</section>
+
+<script src="logic.js"></script>
+<script src="db.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
