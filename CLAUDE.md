@@ -32,6 +32,14 @@ docs/       要件定義書
 - デプロイ: `scripts/deploy.sh`（テスト→main push→app/ を gh-pages に subtree split して push）。
   公開URL: https://fugangliang.github.io/ic-exam/ （publicリポジトリのため docs/ もgit対象外。配信されるのは app/ のみ）
 
+## データ運用フロー（日次: 撮る→取り込む→解く）
+
+1. iPhoneの書類スキャンで問題＋解説ページを撮影 → Macへ転送
+   （iCloud Drive `IC-scan/` フォルダ保存で自動同期、またはAirDrop→~/Downloads）
+2. Claude Codeで `/ingest` 実行（画像収集→JSON化→検証→processed/退避まで一括）
+3. 生成JSONをiPhoneにAirDrop → アプリ⚙「問題データimport」で取り込み
+4. **画像・問題JSONはGitHubにアップロードしない**（アプリ本体の更新時のみ `scripts/deploy.sh`）
+
 ## 問題JSONスキーマ
 
 ```json
