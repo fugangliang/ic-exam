@@ -62,7 +62,11 @@ python3 scripts/check_ingest_dupes.py --check IC_scan/*
 2. `python3 scripts/validate_questions.py data/questions/*.json` を実行し、スキーマエラー・ID重複・**問題文重複**（正規化したbody＋choicesの一致＝同一問題の二重取込）がゼロであることを確認（既存ファイル横断でチェックされる）
 3. 問題文重複が出た場合は新規側のJSONから該当問題を削除して再検証する（既存側を残す）
 4. `python3 scripts/check_ingest_dupes.py --register inbox/*` で処理済み画像を台帳に登録する
-5. 処理済み画像を `processed/` に移動（ファイル名は変えない）
+   （**台帳登録を削除より先に必ず行う**。ハッシュが台帳に残るため、画像削除後も再送重複は検出できる）
+5. 画像の後始末（ディスク節約のため原則削除。RF決定 2026-07-13）:
+   - 検証を通過し `[要確認]` なしで取り込めた画像 → **削除する**（processed/ に残さない）
+   - `[要確認]` 問題を含む画像 → `processed/` に移動して残す（原本照合ができなくなるため。
+     人間レビューで解消したら削除してよい）
 
 ### 5. 報告と次アクション案内
 

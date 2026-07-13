@@ -9,6 +9,10 @@
   python3 scripts/check_ingest_dupes.py --register inbox/*     # 取込後: 台帳へ登録
   python3 scripts/check_ingest_dupes.py --rebuild              # processed/ から台帳を再構築
 
+注意: 取込確定画像は削除する運用（2026-07-13〜）のため、--rebuild は processed/ に
+実在するファイル分しか復元できない＝削除済み画像のハッシュが台帳から消える。
+台帳が破損した場合以外は使わないこと。
+
 終了コード: --check は重複が1件でもあれば 2（新規のみなら 0）。他は 0=OK / 1=エラー
 """
 import hashlib
