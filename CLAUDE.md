@@ -35,6 +35,10 @@ docs/       要件定義書
 
 ## データ運用フロー（日次: 撮る→取り込む→解く）
 
+**/ingest はSonnet等の高速モデルでの実行を想定**（RF決定 2026-07-13）。品質はモデルではなく
+手順書（`.claude/commands/ingest.md`）＋機械チェック（next_ids.py / check_ingest_dupes.py /
+validate_questions.py）で担保する。手順の省略・変更をしないこと。
+
 1. iPhoneの書類スキャンで問題＋解説ページを撮影 → **AirDropでMacへ転送し `IC_scan/` に置く**
    （確定: iCloud Drive は使わない。RF決定 2026-07-13）
 2. Claude Codeで `/ingest` 実行（画像収集→重複除外→JSON化→検証→台帳登録→画像削除まで一括）。
