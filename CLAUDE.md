@@ -16,8 +16,9 @@
 ```
 app/        PWA本体（vanilla JS・ビルド工程なし。index.html/app.js/logic.js/db.js/sw.js）
 data/questions/  分野別問題JSON（git対象外）
+IC_scan/    スキャン画像の着地先（RFがAirDrop受信後ここに置く・git対象外）
 inbox/      未処理の撮影画像（git対象外）
-processed/  処理済み画像（git対象外）
+processed/  処理済み画像＋取込台帳 .ingest_manifest.json（git対象外）
 scripts/    検証・テスト
 docs/       要件定義書
 ```
@@ -34,9 +35,11 @@ docs/       要件定義書
 
 ## データ運用フロー（日次: 撮る→取り込む→解く）
 
-1. iPhoneの書類スキャンで問題＋解説ページを撮影 → **AirDropでMacへ転送（~/Downloads に着地）**
+1. iPhoneの書類スキャンで問題＋解説ページを撮影 → **AirDropでMacへ転送し `IC_scan/` に置く**
    （確定: iCloud Drive は使わない。RF決定 2026-07-13）
-2. Claude Codeで `/ingest` 実行（画像収集→JSON化→検証→processed/退避まで一括）
+2. Claude Codeで `/ingest` 実行（画像収集→重複除外→JSON化→検証→台帳登録→processed/退避まで一括）。
+   重複は二重で防ぐ: 画像は内容ハッシュ台帳（`check_ingest_dupes.py`）、問題は
+   `validate_questions.py` のID重複＋問題文重複チェック
 3. 生成JSONをiPhoneにAirDrop → アプリ⚙「問題データimport」で取り込み
 4. **画像・問題JSONはGitHubにアップロードしない**（アプリ本体の更新時のみ `scripts/deploy.sh`）
 

@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
-"""問題JSONのスキーマ検証・ID重複チェック（ingestパイプライン用）。
+"""問題JSONのスキーマ検証・ID重複・問題文重複チェック（ingestパイプライン用）。
 
 使い方:
   python3 scripts/validate_questions.py data/questions/*.json
   python3 scripts/validate_questions.py <ファイル...>
 
-app/logic.js の validateQuestion と同一基準。全ファイル横断でID重複も検出する。
+app/logic.js の validateQuestion と同一基準。全ファイル横断で以下も検出する:
+- ID重複
+- 問題文の実質重複（空白・改行を除去して正規化したbodyが一致 → 同一問題の二重取込）
 終了コード: 0=OK / 1=エラーあり
 """
 import json
+import re
 import sys
 
 REQUIRED_STR = ["id", "category", "body"]
+
+
+def normalize_body(q):
+    """問題文＋選択肢から空白類を除去した重複判定キーを作る。"""
+    body = q.get("body", "") if isinstance(q, dict) else ""
+    choices = q.get("choices", []) if isinstance(q, dict) else []
+    text = body + "|" + "|".join(c for c in choices if isinstance(c, str))
+    return re.sub(r"\s+", "", text)
 
 
 def validate_question(q):
@@ -51,6 +62,7 @@ def main(paths):
         print(__doc__)
         return 1
     seen = {}  # id -> path
+    seen_body = {}  # normalized body -> (id, path)
     total, errors = 0, 0
     for path in paths:
         try:
@@ -67,6 +79,13 @@ def main(paths):
                 errs.append(f"ID重複（既出: {seen[qid]}）")
             elif isinstance(qid, str):
                 seen[qid] = path
+            key = normalize_body(q)
+            if key.strip("|"):
+                if key in seen_body:
+                    dup_id, dup_path = seen_body[key]
+                    errs.append(f"問題文重複（既出: id={dup_id} @ {dup_path}）")
+                else:
+                    seen_body[key] = (qid, path)
             if errs:
                 errors += 1
                 print(f"[NG] {path} #{i} id={qid}: {'; '.join(errs)}")
