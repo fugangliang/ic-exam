@@ -10,7 +10,8 @@ ingest時のID採番はこの出力に従う（手で数えない・推測しな
 出力例:
   mondai26-env: 次は mondai26-env-013（既存 12 問）
 
-空欄分解形式（1問4空欄ア〜エを -a/-i/-u/-e 接尾辞で分解する方式）のIDにも対応する。
+空欄分解形式（1問4空欄ア〜エを -a/-i/-u/-e 接尾辞で分解する方式）や、正誤5肢選択形式
+（-a/-i/-u/-e/-o 接尾辞）など、英小文字・数字の接尾辞を持つIDにも対応する。
 例: mondai26-env-012-a, -i, -u, -e は同一の連番012として数える（空欄違いは新規問題として増分しない）。
 """
 import glob
@@ -20,7 +21,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ID_RE = re.compile(r"^(.+)-(\d{3})(?:-[aiue])?$")
+ID_RE = re.compile(r"^(.+)-(\d{3})(?:-[a-z0-9]+)?$")
 
 
 def main(argv):

@@ -42,7 +42,9 @@ python3 scripts/check_ingest_dupes.py --check IC_scan/*
 python3 scripts/next_ids.py <出典略号>-<分野略号>
 ```
 
-- 分野略号: 歴史=his / 計画=pla / エレメント=ele / 構造・構法=str / 環境・設備=env / 法規=law / 表現=exp / 販売・コンサル=sal
+- 分野略号: 歴史=his / 計画=pla / エレメント=ele / 構造・構法=str / 環境・設備=env / 法規=law / 表現=exp / 販売・コンサル=sal /
+  色彩と造形=iro / 家具=kag / ウィンドウトリートメント=wnd
+  （2026-07-14 過去問題集の実処理で追加。新カテゴリが出た場合はこの一覧に追記すること）
 - 出力された「次のID」から連番で振る。既存IDの目視カウント・記憶に基づく採番を禁止する
 
 ### 3. 構造化（1ファイルずつ）
