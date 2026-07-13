@@ -34,8 +34,8 @@ docs/       要件定義書
 
 ## データ運用フロー（日次: 撮る→取り込む→解く）
 
-1. iPhoneの書類スキャンで問題＋解説ページを撮影 → Macへ転送
-   （iCloud Drive `IC-scan/` フォルダ保存で自動同期、またはAirDrop→~/Downloads）
+1. iPhoneの書類スキャンで問題＋解説ページを撮影 → **AirDropでMacへ転送（~/Downloads に着地）**
+   （確定: iCloud Drive は使わない。RF決定 2026-07-13）
 2. Claude Codeで `/ingest` 実行（画像収集→JSON化→検証→processed/退避まで一括）
 3. 生成JSONをiPhoneにAirDrop → アプリ⚙「問題データimport」で取り込み
 4. **画像・問題JSONはGitHubにアップロードしない**（アプリ本体の更新時のみ `scripts/deploy.sh`）
