@@ -137,4 +137,15 @@ const freqStats = Logic.perQuestionStats([
 const balanced = Logic.buildQuizSet(pool, { mode: "random", count: 2, questionStats: freqStats }, rng);
 assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["2", "3"]); // 出題0〜1回の2問が、3回出題済みの"1"より優先される
 
+// explanationHighlightKey: 括弧書き（読み仮名等）を除いた本体を返す
+assert.strictEqual(Logic.explanationHighlightKey("卓袱台（ちゃぶだい）"), "卓袱台");
+assert.strictEqual(Logic.explanationHighlightKey("箱膳"), "箱膳");
+assert.strictEqual(Logic.explanationHighlightKey("ウィンドウトリートメント"), "ウィンドウトリートメント");
+// 正誤2択・1文字以下・非文字列は強調対象外（null）
+assert.strictEqual(Logic.explanationHighlightKey("正しい"), null);
+assert.strictEqual(Logic.explanationHighlightKey("誤り"), null);
+assert.strictEqual(Logic.explanationHighlightKey("木"), null);
+assert.strictEqual(Logic.explanationHighlightKey(null), null);
+assert.strictEqual(Logic.explanationHighlightKey("（注記のみ）"), null);
+
 console.log("all logic tests passed");
