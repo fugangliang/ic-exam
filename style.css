@@ -119,7 +119,8 @@ select {
 
 /* 自信度 */
 #confidence-panel { margin-top: 18px; text-align: center; }
-.confidence-label { font-weight: 600; margin-bottom: 10px; }
+.confidence-label { font-weight: 600; margin-bottom: 2px; }
+.confidence-note { margin: 0 0 10px; }
 .confidence-btns { display: flex; gap: 10px; }
 .conf-btn {
   flex: 1; padding: 16px 8px; border-radius: 12px; font-size: 1.05rem;
@@ -139,6 +140,11 @@ select {
   font-size: .95rem; white-space: pre-wrap;
 }
 .explanation .exp-head { font-weight: 700; margin-bottom: 6px; }
+.explanation .exp-your-answer {
+  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  font-size: .92rem; font-weight: 600;
+}
+.explanation mark { background: #fdecec; color: var(--red); padding: 0 2px; border-radius: 3px; font-weight: 700; }
 
 /* サマリー */
 .summary-score { font-size: 2rem; font-weight: 700; text-align: center; margin: 16px 0; }

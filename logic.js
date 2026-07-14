@@ -186,6 +186,18 @@ const Logic = {
   confidenceLabel(code) {
     return { sure: "確信", unsure: "迷い", guess: "勘" }[code] || code;
   },
+
+  /**
+   * 不正解時、選んだ肢の語が解説文中のどこで説明されているかを強調表示するための検索語を作る。
+   * 肢テキストから括弧書き（読み仮名等）を除いた本体を返す。
+   * 強調が意味をなさない肢（正誤2択・1文字以下）は null（強調しない）。
+   */
+  explanationHighlightKey(choice) {
+    if (typeof choice !== "string") return null;
+    const t = choice.split(/[（(]/)[0].trim();
+    if (t.length < 2 || t === "正しい" || t === "誤り") return null;
+    return t;
+  },
 };
 
 /* node テスト用 */

@@ -167,6 +167,7 @@
   function renderQuestion() {
     const q = session.list[session.index];
     session.pendingChoice = null;
+    session.answered = false;
     $("#quiz-progress").textContent = `${session.index + 1} / ${session.list.length}`;
     $("#quiz-meta").textContent =
       `${q.category}${q.subcategory ? " › " + q.subcategory : ""}｜出典: ${q.source || "―"}`;
@@ -192,12 +193,15 @@
     window.scrollTo(0, 0);
   }
 
+  function fmtTime(s) {
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+
   function startTimer() {
     session.qStart = Date.now();
     stopTimer();
     session.timerId = setInterval(() => {
-      const s = Math.floor((Date.now() - session.qStart) / 1000);
-      $("#quiz-timer").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      $("#quiz-timer").textContent = fmtTime(Math.floor((Date.now() - session.qStart) / 1000));
     }, 500);
     $("#quiz-timer").textContent = "0:00";
   }
@@ -206,21 +210,21 @@
     if (session && session.timerId) { clearInterval(session.timerId); session.timerId = null; }
   }
 
-  /** タップ1: 選択肢 → タイマー停止・自信度パネル表示（正誤はまだ見せない） */
+  /** タップ1: 選択肢 → タイマー停止・自信度パネル表示（正誤はまだ見せない）。
+      自信度タップ（＝確定）までは何度でも選び直せる。解答時間は最後の選択時点まで */
   function onChoice(i) {
-    if (session.pendingChoice !== null) return;
+    if (session.answered) return;
     session.pendingChoice = { choice: i, timeSec: Math.round((Date.now() - session.qStart) / 1000) };
     stopTimer();
-    $$("#quiz-choices .choice-btn").forEach((b, j) => {
-      b.disabled = true;
-      if (j === i) b.classList.add("selected");
-    });
+    $("#quiz-timer").textContent = fmtTime(session.pendingChoice.timeSec);
+    $$("#quiz-choices .choice-btn").forEach((b, j) => b.classList.toggle("selected", j === i));
     $("#confidence-panel").classList.remove("hidden");
   }
 
-  /** タップ2: 自信度 → 履歴保存・正誤と解説を表示 */
+  /** タップ2: 自信度（＝解答確定） → 履歴保存・正誤と解説を表示 */
   $$(".conf-btn").forEach(btn => btn.addEventListener("click", async () => {
-    if (!session || session.pendingChoice === null) return;
+    if (!session || session.pendingChoice === null || session.answered) return;
+    session.answered = true;
     const q = session.list[session.index];
     const { choice, timeSec } = session.pendingChoice;
     const correct = choice === q.answer;
@@ -236,6 +240,7 @@
 
     $("#confidence-panel").classList.add("hidden");
     $$("#quiz-choices .choice-btn").forEach((b, j) => {
+      b.disabled = true;
       if (j === q.answer) b.classList.add("correct");
       else if (j === choice) b.classList.add("wrong");
     });
@@ -248,11 +253,35 @@
     head.className = "exp-head";
     head.textContent = "解説";
     exp.appendChild(head);
-    exp.appendChild(document.createTextNode(q.explanation || "（解説未収録）"));
+    if (!correct) {
+      const my = document.createElement("div");
+      my.className = "exp-your-answer";
+      my.textContent = `あなたの解答: ${choice + 1}「${q.choices[choice]}」／正答: ${q.answer + 1}「${q.choices[q.answer]}」`;
+      exp.appendChild(my);
+    }
+    appendExplanation(exp, q.explanation || "（解説未収録）",
+      correct ? null : Logic.explanationHighlightKey(q.choices[choice]));
     $("#result-panel").classList.remove("hidden");
     $("#btn-next").textContent =
       session.index + 1 < session.list.length ? "次の問題" : "結果を見る";
   }));
+
+  /** 解説本文を表示。不正解時、選んだ肢の語（term）が本文中にあれば <mark> で強調し、
+      自分の肢がなぜ誤りかの説明箇所を見つけやすくする（textNodeで組むためHTML注入なし） */
+  function appendExplanation(el, text, term) {
+    if (!term || !text.includes(term)) {
+      el.appendChild(document.createTextNode(text));
+      return;
+    }
+    text.split(term).forEach((part, i) => {
+      if (i > 0) {
+        const m = document.createElement("mark");
+        m.textContent = term;
+        el.appendChild(m);
+      }
+      el.appendChild(document.createTextNode(part));
+    });
+  }
 
   /** タップ3: 次問 or 結果 */
   $("#btn-next").addEventListener("click", () => {
