@@ -24,6 +24,11 @@
   <div id="home-stats" class="stats-bar"></div>
 
   <div class="card">
+    <h2>分野別 得意・不得意</h2>
+    <div id="category-stats"></div>
+  </div>
+
+  <div class="card">
     <h2>出題モード</h2>
     <div class="mode-tabs">
       <button class="mode-tab active" data-mode="random">全分野ランダム</button>
@@ -39,6 +44,12 @@
       </label>
     </div>
 
+    <div class="filter-row">
+      <label class="checkbox-label"><input type="checkbox" id="filter-wrong"> 直近不正解のみ</label>
+      <label class="checkbox-label"><input type="checkbox" id="filter-unsure"> 自信なし（迷い・勘）のみ</label>
+      <p id="filter-count" class="muted"></p>
+    </div>
+
     <label>出題数
       <select id="sel-count">
         <option value="10" selected>10問</option>
@@ -47,6 +58,7 @@
         <option value="0">全問</option>
       </select>
     </label>
+    <p class="muted">※ 出題回数が少ない問題を優先し、まんべんなく出題します</p>
 
     <button id="btn-start" class="primary-btn">開始</button>
     <p id="home-message" class="muted"></p>

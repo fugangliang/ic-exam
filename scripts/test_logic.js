@@ -79,4 +79,62 @@ assert.strictEqual(st.total, 2);
 assert.strictEqual(st.rate, 50);
 assert.strictEqual(st.todayCount, 1);
 
+// perQuestionStats: 全履歴を蓄積し、最新の解答（timestamp最大）を lastCorrect/lastConfidence に反映
+const pq = Logic.perQuestionStats([
+  { question_id: "1", correct: true, timestamp: 100, confidence: "sure" },
+  { question_id: "1", correct: false, timestamp: 200, confidence: "guess" },
+  { question_id: "2", correct: true, timestamp: 150, confidence: "unsure" },
+]);
+assert.strictEqual(pq.get("1").times, 2);
+assert.strictEqual(pq.get("1").correctCount, 1);
+assert.strictEqual(pq.get("1").wrongCount, 1);
+assert.strictEqual(pq.get("1").lastCorrect, false);
+assert.strictEqual(pq.get("1").lastConfidence, "guess");
+assert.strictEqual(pq.get("2").lastCorrect, true);
+assert.strictEqual(pq.get("3"), undefined);
+
+// categoryStats: 分野別に全履歴の正答率と「直近不正解」件数を集計し、苦手（wrongNow多い）順に並べる
+const csPool = [q("1", "法規", "建基法"), q("2", "法規", "消防法"), q("3", "歴史", "様式")];
+const cs = Logic.categoryStats(csPool, [
+  { question_id: "1", correct: false, timestamp: 1, confidence: "guess" },
+  { question_id: "1", correct: false, timestamp: 2, confidence: "guess" },
+  { question_id: "2", correct: true, timestamp: 1, confidence: "sure" },
+]);
+const lawStats = cs.find(c => c.category === "法規");
+assert.strictEqual(lawStats.totalQuestions, 2);
+assert.strictEqual(lawStats.attemptedQuestions, 2);
+assert.strictEqual(lawStats.wrongNow, 1);
+assert.strictEqual(lawStats.accuracy, 33);
+const historyStats = cs.find(c => c.category === "歴史");
+assert.strictEqual(historyStats.attemptedQuestions, 0);
+assert.strictEqual(historyStats.accuracy, null);
+assert.strictEqual(cs[0].category, "法規"); // wrongNowが多い分野が先頭
+
+// buildQuizSet: onlyWrong/onlyUnsure で直近解答に基づき抽出（未解答は対象外）
+const qStats = Logic.perQuestionStats([
+  { question_id: "1", correct: false, timestamp: 1, confidence: "guess" },
+  { question_id: "2", correct: true, timestamp: 1, confidence: "sure" },
+  { question_id: "3", correct: true, timestamp: 1, confidence: "unsure" },
+]);
+const wrongSet = Logic.buildQuizSet(pool, { mode: "random", count: 0, onlyWrong: true, questionStats: qStats }, rng);
+assert.strictEqual(wrongSet.length, 1);
+assert.strictEqual(wrongSet[0].id, "1");
+// onlyUnsure は「迷い」「勘」の両方を対象とする（id1=勘で不正解、id3=迷いで正解、の2件がヒット）
+const unsureSet = Logic.buildQuizSet(pool, { mode: "random", count: 0, onlyUnsure: true, questionStats: qStats }, rng);
+assert.strictEqual(unsureSet.length, 2);
+assert.deepStrictEqual(unsureSet.map(q => q.id).sort(), ["1", "3"]);
+const noneSet = Logic.buildQuizSet(pool, { mode: "random", count: 0, onlyWrong: true, onlyUnsure: true, questionStats: new Map() }, rng);
+assert.strictEqual(noneSet.length, 0); // 統計が空なら全問未解答扱いで対象外
+
+// buildQuizSet: 絞り込みなしでも questionStats があれば出題回数の少ない問題を優先（偏り防止）
+const freqStats = Logic.perQuestionStats([
+  { question_id: "1", correct: true, timestamp: 1, confidence: "sure" },
+  { question_id: "1", correct: true, timestamp: 2, confidence: "sure" },
+  { question_id: "1", correct: true, timestamp: 3, confidence: "sure" },
+  { question_id: "2", correct: true, timestamp: 1, confidence: "sure" },
+  // id "3" は未出題（questionStatsに存在しない） → times=0扱いで最優先
+]);
+const balanced = Logic.buildQuizSet(pool, { mode: "random", count: 2, questionStats: freqStats }, rng);
+assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["2", "3"]); // 出題0〜1回の2問が、3回出題済みの"1"より優先される
+
 console.log("all logic tests passed");

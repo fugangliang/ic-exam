@@ -37,6 +37,8 @@
     addChip(`累計正答率 <b>${st.rate}%</b>（${st.correct}/${st.total}）`);
     addChip(`今日 <b>${st.todayCount}</b> 問`);
     buildCategorySelectors();
+    renderCategoryStats(Logic.categoryStats(questions, attempts));
+    await updateFilterCount();
     $("#home-message").textContent = usable === 0
       ? "問題データがありません。右上の⚙からJSONをimportしてください。" : "";
   }
@@ -46,6 +48,50 @@
     d.className = "stat-chip";
     d.innerHTML = html; // 内部生成文字列のみ（ユーザーデータは含めない）
     $("#home-stats").appendChild(d);
+  }
+
+  /** 分野別の得意・不得意テーブル（全履歴ベース。苦手＝直近不正解が多い分野を先頭に表示） */
+  function renderCategoryStats(list) {
+    const el = $("#category-stats");
+    el.innerHTML = "";
+    const attempted = list.filter(c => c.attemptedQuestions > 0);
+    if (attempted.length === 0) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "演習履歴がまだありません。出題を解くとここに分野別の正答率が表示されます。";
+      el.appendChild(p);
+      return;
+    }
+    const table = document.createElement("table");
+    table.className = "summary-table";
+    table.innerHTML = "<tr><th>分野</th><th>正答率</th><th>要復習</th></tr>";
+    for (const c of attempted) {
+      const tr = document.createElement("tr");
+      [c.category, `${c.accuracy}%`, `${c.wrongNow}/${c.attemptedQuestions}問`].forEach(t => {
+        const td = document.createElement("td");
+        td.textContent = t;
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    }
+    el.appendChild(table);
+  }
+
+  /** 絞り込み（直近不正解のみ／自信なしのみ）チェック時の対象問題数をリアルタイム表示 */
+  async function updateFilterCount() {
+    const onlyWrong = $("#filter-wrong").checked;
+    const onlyUnsure = $("#filter-unsure").checked;
+    if (!onlyWrong && !onlyUnsure) { $("#filter-count").textContent = ""; return; }
+    const attempts = await DB.getAllAttempts();
+    const questionStats = Logic.perQuestionStats(attempts);
+    const list = Logic.buildQuizSet(questions, {
+      mode,
+      category: $("#sel-category").value,
+      subcategory: $("#sel-subcategory").value,
+      count: 0,
+      onlyWrong, onlyUnsure, questionStats,
+    });
+    $("#filter-count").textContent = `対象 ${list.length} 問`;
   }
 
   function buildCategorySelectors() {
@@ -60,7 +106,7 @@
     }
     if (prev && tree.has(prev)) catSel.value = prev;
     buildSubcategorySelector(tree);
-    catSel.onchange = () => buildSubcategorySelector(tree);
+    catSel.onchange = () => { buildSubcategorySelector(tree); updateFilterCount(); };
   }
 
   function buildSubcategorySelector(tree) {
@@ -72,6 +118,7 @@
       o.value = o.textContent = s;
       subSel.appendChild(o);
     }
+    subSel.onchange = updateFilterCount;
   }
 
   $$(".mode-tab").forEach(btn => btn.addEventListener("click", () => {
@@ -79,15 +126,24 @@
     btn.classList.add("active");
     mode = btn.dataset.mode;
     $("#category-selectors").classList.toggle("hidden", mode !== "category");
+    updateFilterCount();
   }));
 
+  $("#filter-wrong").addEventListener("change", updateFilterCount);
+  $("#filter-unsure").addEventListener("change", updateFilterCount);
+
   // ---- 出題セッション ----
-  $("#btn-start").addEventListener("click", () => {
+  $("#btn-start").addEventListener("click", async () => {
+    const onlyWrong = $("#filter-wrong").checked;
+    const onlyUnsure = $("#filter-unsure").checked;
+    // 絞り込みの有無に関わらず取得する: 通常出題でも出題回数の少ない問題を優先するため
+    const questionStats = Logic.perQuestionStats(await DB.getAllAttempts());
     const list = Logic.buildQuizSet(questions, {
       mode,
       category: $("#sel-category").value,
       subcategory: $("#sel-subcategory").value,
       count: parseInt($("#sel-count").value, 10),
+      onlyWrong, onlyUnsure, questionStats,
     });
     if (list.length === 0) {
       $("#home-message").textContent = "条件に合う問題がありません。";
