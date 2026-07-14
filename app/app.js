@@ -54,20 +54,21 @@
   function renderCategoryStats(list) {
     const el = $("#category-stats");
     el.innerHTML = "";
-    const attempted = list.filter(c => c.attemptedQuestions > 0);
-    if (attempted.length === 0) {
+    if (list.length === 0) {
       const p = document.createElement("p");
       p.className = "muted";
-      p.textContent = "演習履歴がまだありません。出題を解くとここに分野別の正答率が表示されます。";
+      p.textContent = "問題データがありません。";
       el.appendChild(p);
       return;
     }
     const table = document.createElement("table");
     table.className = "summary-table";
-    table.innerHTML = "<tr><th>分野</th><th>正答率</th><th>要復習</th></tr>";
-    for (const c of attempted) {
+    table.innerHTML = "<tr><th>分野</th><th>総問題数</th><th>正答率</th><th>要復習</th></tr>";
+    for (const c of list) {
       const tr = document.createElement("tr");
-      [c.category, `${c.accuracy}%`, `${c.wrongNow}/${c.attemptedQuestions}問`].forEach(t => {
+      const accuracyText = c.accuracy === null ? "―" : `${c.accuracy}%`;
+      const reviewText = c.attemptedQuestions > 0 ? `${c.wrongNow}/${c.attemptedQuestions}問` : "―";
+      [c.category, `${c.totalQuestions}問`, accuracyText, reviewText].forEach(t => {
         const td = document.createElement("td");
         td.textContent = t;
         tr.appendChild(td);
