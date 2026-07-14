@@ -58,6 +58,13 @@ body {
 }
 .stat-chip b { font-size: 1.05rem; }
 
+.filter-row { margin: 4px 0 12px; }
+.checkbox-label {
+  display: flex; align-items: center; gap: 8px; margin: 8px 0;
+  font-size: .9rem; color: var(--text);
+}
+.checkbox-label input { width: 18px; height: 18px; flex-shrink: 0; }
+
 .mode-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
 .mode-tab {
   flex: 1; padding: 12px 8px; border: 1px solid var(--line); border-radius: 10px;
