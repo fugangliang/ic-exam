@@ -148,4 +148,23 @@ assert.strictEqual(Logic.explanationHighlightKey("木"), null);
 assert.strictEqual(Logic.explanationHighlightKey(null), null);
 assert.strictEqual(Logic.explanationHighlightKey("（注記のみ）"), null);
 
+// choiceExplanationExcerpt: 丸数字パターン（選んだ肢②の説明区間を、次の丸数字の手前まで抜粋）
+const expText = "正答は③無垢材。框戸は框組に鏡板をはめ込んだ構造の戸。①構造用合板は耐力部材として使用できる合板。②縁甲板は長手方向の側面に実はぎ加工が施された長尺の板。床材のほか壁や天井にも用いる。";
+assert.strictEqual(
+  Logic.choiceExplanationExcerpt(expText, 1, "縁甲板"),
+  "②縁甲板は長手方向の側面に実はぎ加工が施された長尺の板。床材のほか壁や天井にも用いる。");
+assert.strictEqual(
+  Logic.choiceExplanationExcerpt(expText, 0, "構造用合板"),
+  "①構造用合板は耐力部材として使用できる合板。");
+// 丸数字が無い解説では、肢の語（括弧書き除去）を含む文を抜粋
+const expPlain = "鴨居は開口部の上側の部材。長押（なげし）は柱の上部を水平につなぐ化粧材である。敷居は下側の部材。";
+assert.strictEqual(
+  Logic.choiceExplanationExcerpt(expPlain, 0, "長押（なげし）"),
+  "長押（なげし）は柱の上部を水平につなぐ化粧材である。");
+// 該当なし・正誤2択・空解説は null（抜粋表示なし）
+assert.strictEqual(Logic.choiceExplanationExcerpt(expPlain, 2, "回り縁"), null);
+assert.strictEqual(Logic.choiceExplanationExcerpt("この記述は誤りである。", 0, "誤り"), null);
+assert.strictEqual(Logic.choiceExplanationExcerpt("", 1, "縁甲板"), null);
+assert.strictEqual(Logic.choiceExplanationExcerpt(null, 1, "縁甲板"), null);
+
 console.log("all logic tests passed");

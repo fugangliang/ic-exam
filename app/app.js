@@ -258,6 +258,17 @@
       my.className = "exp-your-answer";
       my.textContent = `あなたの解答: ${choice + 1}「${q.choices[choice]}」／正答: ${q.answer + 1}「${q.choices[q.answer]}」`;
       exp.appendChild(my);
+      const excerpt = Logic.choiceExplanationExcerpt(q.explanation || "", choice, q.choices[choice]);
+      if (excerpt) {
+        const yc = document.createElement("div");
+        yc.className = "exp-your-choice";
+        const label = document.createElement("span");
+        label.className = "exp-your-choice-label";
+        label.textContent = "選んだ肢の解説: ";
+        yc.appendChild(label);
+        yc.appendChild(document.createTextNode(excerpt));
+        exp.appendChild(yc);
+      }
     }
     appendExplanation(exp, q.explanation || "（解説未収録）",
       correct ? null : Logic.explanationHighlightKey(q.choices[choice]));
