@@ -198,6 +198,45 @@ const Logic = {
     if (t.length < 2 || t === "正しい" || t === "誤り") return null;
     return t;
   },
+
+  /**
+   * 不正解時、選んだ肢がなぜ誤りかの説明部分を解説文から抜粋する（データ改変なし・表示用）。
+   * 一次: 肢番号の丸数字（①〜⑤）から次の丸数字（or 文末）までの区間。
+   *       不正解時のみ呼ばれる前提のため、解説冒頭の「正答は◯…」の丸数字は正答肢の番号であり
+   *       選んだ肢の番号とは一致せず誤ヒットしない。
+   * 二次: 丸数字が無い解説では、肢の語（括弧書き除去）を含む最初の文。
+   * どちらも見つからなければ null（抜粋表示なし＝従来表示のみ）。
+   */
+  choiceExplanationExcerpt(explanation, choiceIndex, choiceText) {
+    if (typeof explanation !== "string" || !explanation) return null;
+    const marks = ["①", "②", "③", "④", "⑤"];
+    const mark = marks[choiceIndex];
+    if (mark) {
+      const i = explanation.indexOf(mark);
+      if (i >= 0) {
+        let end = explanation.length;
+        for (const m of marks) {
+          if (m === mark) continue;
+          const j = explanation.indexOf(m, i + 1);
+          if (j >= 0 && j < end) end = j;
+        }
+        const seg = explanation.slice(i, end).trim().replace(/[、\s]+$/, "");
+        if (seg.length >= 4) return seg;
+      }
+    }
+    const key = this.explanationHighlightKey(choiceText);
+    if (key) {
+      const k = explanation.indexOf(key);
+      if (k >= 0) {
+        const start = explanation.lastIndexOf("。", k) + 1;
+        let end = explanation.indexOf("。", k);
+        end = end < 0 ? explanation.length : end + 1;
+        const seg = explanation.slice(start, end).trim();
+        if (seg.length >= 4) return seg;
+      }
+    }
+    return null;
+  },
 };
 
 /* node テスト用 */
