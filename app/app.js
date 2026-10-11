@@ -42,12 +42,13 @@
     const attempts = attemptsCache;
     const st = Logic.overallStats(attempts);
     const usable = questions.filter(q => !q.has_figure).length;
-    const attempted = Logic.perQuestionStats(attempts).size;
+    const trend = Logic.trendSummary(questions, attempts);
     $("#home-stats").innerHTML = "";
     addChip(`収録 <b>${usable}</b> 問`);
-    addChip(`消化 <b>${usable ? Math.round(attempted / usable * 100) : 0}%</b>（${attempted}/${usable}）`);
+    addChip(`消化 <b>${trend.coverage}%</b>（${trend.attempted}/${usable}）`);
     addChip(`累計正答率 <b>${st.rate}%</b>（${st.correct}/${st.total}）`);
     addChip(`今日 <b>${st.todayCount}</b> 問`);
+    renderTrend(trend);
     buildCategorySelectors();
     buildMockPresetSelector();
     renderCategoryStats(Logic.categoryStats(questions, attempts));
@@ -61,6 +62,51 @@
     const d = el("div", "stat-chip");
     d.innerHTML = html; // 内部生成文字列のみ（ユーザーデータは含めない）
     $("#home-stats").appendChild(d);
+  }
+
+  /** 傾向サマリー（簡潔表示）: 現在地→優先分野→次の一手。優先分野の演習をワンタップで開始できる */
+  function renderTrend(t) {
+    const box = $("#trend-content");
+    box.innerHTML = "";
+    if (t.total === 0) { box.appendChild(el("p", "muted", "問題データがありません。")); return; }
+    const line = (label, text, cls) => {
+      const d = el("div", "trend-line");
+      d.appendChild(el("span", "trend-label", label));
+      d.appendChild(el("span", "trend-text" + (cls ? " " + cls : ""), text));
+      box.appendChild(d);
+    };
+    // 現在地
+    if (t.latestMock) {
+      const d = new Date(t.latestMock.timestamp).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
+      const delta = t.prevMock ? `（前回${t.prevMock.rate}%→${t.latestMock.rate - t.prevMock.rate >= 0 ? "+" : ""}${t.latestMock.rate - t.prevMock.rate}）` : "";
+      const gap = t.passGap > 0 ? `合格ライン70%まで あと${t.passGap}ポイント` : "合格ライン70%に到達";
+      line("現在地", `直近の模試 ${t.latestMock.rate}%（${d}）${delta}。${gap}`, t.passGap > 0 ? "ng-text" : "ok-text");
+    } else {
+      line("現在地", `模試の記録なし。着手率${t.coverage}%（${t.attempted}/${t.total}問）`);
+    }
+    if (t.week.n) {
+      const diff = t.prevWeek.rate === null ? "" : `（前週${t.prevWeek.rate}%→${t.week.rate - t.prevWeek.rate >= 0 ? "+" : ""}${t.week.rate - t.prevWeek.rate}）`;
+      line("直近7日", `${t.week.n}問・正答率${t.week.rate}%${diff}`);
+    }
+    // 優先分野
+    const pr = t.priorities.filter(p => p.score > 0);
+    if (pr.length) {
+      line("優先分野", pr.map((p, i) => `${i + 1}. ${p.category}（${p.reasons.join("・")}）`).join("　"));
+    }
+    // 次の一手
+    const next = [];
+    if (t.sureWrong) next.push(`確信誤答${t.sureWrong}問`);
+    if (t.due) next.push(`本日のSRS復習${t.due}問`);
+    if (t.guessCorrect) next.push(`勘・迷いで正解${t.guessCorrect}問`);
+    line("次の一手", next.length ? next.join("／") + " を優先的に潰す" : "弱点集中モードで優先分野を回す");
+    if (pr.length) {
+      const b = el("button", "secondary-btn trend-btn", `優先分野「${pr[0].category}」を弱点集中で20問`);
+      b.addEventListener("click", () => {
+        const list = Logic.buildWeakSet(questions.filter(q => q.category === pr[0].category), attemptsCache, 20);
+        if (list.length) startPractice(list);
+      });
+      box.appendChild(b);
+    }
   }
 
   /** 分野別の得意・不得意テーブル（全履歴ベース。苦手＝直近不正解が多い分野を先頭に表示） */
@@ -237,8 +283,9 @@
     session.pendingChoice = null;
     session.answered = false;
     $("#quiz-progress").textContent = `${session.index + 1} / ${session.list.length}`;
+    const pr = (q.paper_results || []).filter(m => m === "○" || m === "×").join("");
     $("#quiz-meta").textContent =
-      `${q.category}${q.subcategory ? " › " + q.subcategory : ""}｜出典: ${q.source || "―"}`;
+      `${q.category}${q.subcategory ? " › " + q.subcategory : ""}｜出典: ${q.source || "―"}${pr ? "｜紙: " + pr : ""}`;
     renderChoices(q, i => onChoice(i), null);
     $("#confidence-panel").classList.add("hidden");
     $("#result-panel").classList.add("hidden");
@@ -558,7 +605,11 @@
     // 概況チップ
     const chips = el("div", "stats-bar");
     const chip = html => { const d = el("div", "stat-chip"); d.innerHTML = html; chips.appendChild(d); };
-    chip(`消化率 <b>${Math.round(perQ.size / usable.length * 100)}%</b>（${perQ.size}/${usable.length}問）`);
+    const trend = Logic.trendSummary(questions, attempts);
+    chip(`消化率 <b>${trend.coverage}%</b>（${trend.attempted}/${usable.length}問）`);
+    const paper = Logic.paperStats(questions);
+    const pm = [...paper.values()].reduce((a, c) => ({ marked: a.marked + c.marked, x: a.x + c.latestX }), { marked: 0, x: 0 });
+    if (pm.marked) chip(`紙演習 直近× <b>${pm.x}</b>/${pm.marked}問`);
     chip(`累計正答率 <b>${st.rate}%</b>（${st.total}解答）`);
     chip(`模試 <b>${series.length}</b> 回`);
     chip(`本日の復習 <b>${due.length}</b> 問`);
@@ -614,7 +665,14 @@
     c3.appendChild(el("h2", null, "分野 × 小分類 ヒートマップ（優先度順）"));
     c3.appendChild(el("p", "muted", "色＝最新解答の正答率（赤50%未満→緑85%以上、灰＝未着手）。優先度＝(1−最新正答率)×(1+確信誤答率)×出題配分重み。"));
     const ht = el("table", "summary-table heatmap");
-    ht.innerHTML = "<tr><th>分野 › 小分類</th><th>消化</th><th>最新</th><th>累計</th><th>確信✕</th><th>秒</th><th></th></tr>";
+    ht.innerHTML = "<tr><th>分野 › 小分類</th><th>消化</th><th>最新</th><th>累計</th><th>確信✕</th><th>紙✕</th><th>秒</th><th></th></tr>";
+    const paperBySub = new Map();
+    for (const q of usable) {
+      const pmk = Logic.paperMark(q); if (!pmk) continue;
+      const k = q.category + "\u0000" + (q.subcategory || "");
+      if (!paperBySub.has(k)) paperBySub.set(k, { marked: 0, x: 0 });
+      const c = paperBySub.get(k); c.marked++; if (pmk !== "o") c.x++;
+    }
     for (const r of rows) {
       const tr = el("tr");
       tr.appendChild(el("td", "heat-name", `${r.category} › ${r.subcategory || "―"}`));
@@ -623,6 +681,8 @@
       tr.appendChild(tdL);
       tr.appendChild(el("td", `heat heat-${Logic.heatLevel(r.accuracy)}`, r.accuracy === null ? "―" : `${r.accuracy}%`));
       tr.appendChild(el("td", null, r.sureWrong ? String(r.sureWrong) : "―"));
+      const pp = paperBySub.get(r.category + "\u0000" + r.subcategory);
+      tr.appendChild(el("td", null, pp ? `${pp.x}/${pp.marked}` : "―"));
       tr.appendChild(el("td", null, r.avgTime === null ? "―" : String(r.avgTime)));
       const tdB = el("td");
       const b = el("button", "mini-btn", "演習");

@@ -326,4 +326,43 @@ assert.strictEqual(Logic.fmtClock(65), "1:05");
 assert.strictEqual(Logic.fmtClock(7200), "2:00:00");
 assert.strictEqual(Logic.fmtClock(-5), "0:00");
 
+
+// paperMark: 手書き○×の要約（直近×、2周連続×、直近○、記録なし）
+assert.strictEqual(Logic.paperMark({ paper_results: ["×", "×"] }), "xx");
+assert.strictEqual(Logic.paperMark({ paper_results: ["○", "×"] }), "x");
+assert.strictEqual(Logic.paperMark({ paper_results: ["×", "○"] }), "o");
+assert.strictEqual(Logic.paperMark({ paper_results: ["?"] }), null);
+assert.strictEqual(Logic.paperMark({}), null);
+
+// paperStats: 分野別の紙演習集計（図版除外）
+const ppool = [q("p1", "A", "s", { paper_results: ["×", "×"] }), q("p2", "A", "s", { paper_results: ["○"] }), q("p3", "B", "s"), q("p4", "A", "s", { paper_results: ["×"], has_figure: true })];
+const ps = Logic.paperStats(ppool);
+assert.deepStrictEqual(ps.get("A"), { marked: 2, latestX: 1, xx: 1 });
+assert.strictEqual(ps.get("B"), undefined);
+
+// buildWeakSet: アプリ未解答なら紙の×を優先シグナルに使う（×× > × > 未記録 > ○）
+const wpool = [q("w1", "A", "s", { paper_results: ["○"] }), q("w2", "A", "s", { paper_results: ["×", "×"] }), q("w3", "A", "s"), q("w4", "A", "s", { paper_results: ["○", "×"] })];
+assert.deepStrictEqual(Logic.buildWeakSet(wpool, [], 0, rng).map(x => x.id), ["w2", "w4", "w3", "w1"]);
+
+// trendSummary: 着手率・模試・週次・優先分野
+const tnow = Date.now();
+const tpool = [q("t1", "歴史", "s", { paper_results: ["×"] }), q("t2", "歴史", "s"), q("t3", "法規", "s"), q("t4", "法規", "s")];
+const tatt = [
+  { question_id: "t1", timestamp: tnow - DAY, correct: false, confidence: "sure", time_sec: 10 },
+  { question_id: "t3", timestamp: tnow - DAY, correct: true, confidence: "sure", time_sec: 10 },
+  { question_id: "t4", timestamp: tnow - 10 * DAY, correct: true, confidence: "sure", time_sec: 10 },
+  { question_id: "m1", timestamp: tnow - 2 * DAY, correct: true, time_sec: 0, mode: "mock", session_id: "s1" },
+  { question_id: "m2", timestamp: tnow - 2 * DAY, correct: false, time_sec: 0, mode: "mock", session_id: "s1" },
+];
+const ts = Logic.trendSummary(tpool, tatt, tnow);
+assert.strictEqual(ts.total, 4); assert.strictEqual(ts.attempted, 3); assert.strictEqual(ts.coverage, 75);
+assert.strictEqual(ts.latestMock.rate, 50); assert.strictEqual(ts.prevMock, null); assert.strictEqual(ts.passGap, 20);
+assert.strictEqual(ts.week.n, 4); assert.strictEqual(ts.week.rate, 50);
+assert.strictEqual(ts.prevWeek.n, 1); assert.strictEqual(ts.prevWeek.rate, 100);
+assert.strictEqual(ts.priorities[0].category, "歴史"); // アプリ誤答＋紙×＋確信誤答
+assert.strictEqual(ts.priorities[0].sureWrong, 1); assert.strictEqual(ts.priorities[0].paperXRate, 100);
+assert.strictEqual(ts.priorities[1].category, "法規"); assert.strictEqual(ts.priorities[1].appAccuracy, 100);
+assert.strictEqual(ts.sureWrong, 1); assert.strictEqual(ts.due, 3); // 1日前の解答2件＋10日前の1件が期限到来
+assert.strictEqual(Logic.trendSummary([], [], tnow).passGap, null);
+
 console.log("all logic tests passed");

@@ -470,6 +470,10 @@ const Logic = {
       if (a) {
         if (!a.correct) bonus = a.confidence === "sure" ? 1.5 : 1.0;
         else bonus = a.confidence === "sure" ? 0 : 0.5;
+      } else {
+        // アプリ未解答なら紙演習の手書き○×（paper_results）を代用: 直近×=0.8、2周連続×=1.2、直近○=0.2
+        const pm = this.paperMark(q);
+        if (pm === "xx") bonus = 1.2; else if (pm === "x") bonus = 0.8; else if (pm === "o") bonus = 0.2;
       }
       return { q, score: (prio.get(q.category + "\u0000" + (q.subcategory || "")) || 0) + bonus };
     });
@@ -514,6 +518,84 @@ const Logic = {
     }
     return [...map.values()].map(r => ({ ...r, rate: Math.round(r.correct / r.total * 100) }))
       .sort((a, b) => a.date.localeCompare(b.date));
+  },
+
+  /** 紙演習の手書き○×（paper_results）を要約: "xx"=直近2周とも×, "x"=直近×, "o"=直近○, null=記録なし */
+  paperMark(q) {
+    const pr = (q.paper_results || []).filter(m => m === "○" || m === "×");
+    if (!pr.length) return null;
+    if (pr[pr.length - 1] === "×") return pr.length >= 2 && pr[pr.length - 2] === "×" ? "xx" : "x";
+    return "o";
+  },
+
+  /** 分野別の紙演習統計 Map(category -> {marked, latestX, xx}) */
+  paperStats(questions) {
+    const map = new Map();
+    for (const q of questions) {
+      if (q.has_figure) continue;
+      const pm = this.paperMark(q);
+      if (!pm) continue;
+      if (!map.has(q.category)) map.set(q.category, { marked: 0, latestX: 0, xx: 0 });
+      const c = map.get(q.category);
+      c.marked++; if (pm !== "o") c.latestX++; if (pm === "xx") c.xx++;
+    }
+    return map;
+  },
+
+  /**
+   * 傾向サマリー（ホーム上部に簡潔表示するための集計）。
+   * - coverage: 着手率、latestMock/prevMock: 直近2回の模試、passGap: 合格ライン70%までの差（ポイント）
+   * - week/prevWeek: 直近7日と前7日の正答率（演習＋模試）
+   * - priorities: 分野別の優先度上位3（アプリの最新正答率・確信誤答・紙演習×率・出題配分から算出）
+   * - sureWrong: 確信誤答の問題数、due: 本日のSRS復習数
+   */
+  trendSummary(questions, attempts, now = Date.now()) {
+    const DAY = 86400000;
+    const usable = questions.filter(q => !q.has_figure);
+    const perQ = this.perQuestionStats(attempts);
+    const mocks = this.mockSeries(attempts);
+    const latestMock = mocks[mocks.length - 1] || null;
+    const prevMock = mocks[mocks.length - 2] || null;
+    const win = (from, to) => {
+      const a = attempts.filter(x => x.timestamp >= from && x.timestamp < to);
+      return { n: a.length, rate: a.length ? Math.round(a.filter(x => x.correct).length / a.length * 100) : null };
+    };
+    const week = win(now - 7 * DAY, now + 1), prevWeek = win(now - 14 * DAY, now - 7 * DAY);
+    const rows = this.heatmapRows(questions, attempts);
+    const paper = this.paperStats(questions);
+    const byCat = new Map();
+    for (const r of rows) {
+      if (!byCat.has(r.category)) byCat.set(r.category, { category: r.category, total: 0, attempted: 0, latestCorrect: 0, sureWrong: 0, weight: r.weight });
+      const c = byCat.get(r.category);
+      c.total += r.total; c.attempted += r.attempted; c.latestCorrect += r.latestCorrect; c.sureWrong += r.sureWrong;
+    }
+    const priorities = [...byCat.values()].map(c => {
+      const p = paper.get(c.category);
+      const appAcc = c.attempted ? c.latestCorrect / c.attempted : null;
+      const paperX = p ? p.latestX / p.marked : null;
+      // 弱さ = アプリ最新誤答率と紙×率の平均（片方しか無ければその値、両方無ければ0.5）
+      const vals = [appAcc === null ? null : 1 - appAcc, paperX].filter(v => v !== null);
+      const weakness = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.5;
+      const sureWrongRate = c.attempted ? c.sureWrong / c.attempted : 0;
+      const reasons = [];
+      if (appAcc !== null) reasons.push(`アプリ正答率${Math.round(appAcc * 100)}%`);
+      if (paperX !== null) reasons.push(`紙×率${Math.round(paperX * 100)}%`);
+      if (c.sureWrong) reasons.push(`確信誤答${c.sureWrong}問`);
+      if (!reasons.length) reasons.push("未着手");
+      return { category: c.category, score: Math.round(weakness * (1 + sureWrongRate) * c.weight * 100) / 100, appAccuracy: appAcc === null ? null : Math.round(appAcc * 100), paperXRate: paperX === null ? null : Math.round(paperX * 100), sureWrong: c.sureWrong, weight: c.weight, reasons };
+    }).sort((a, b) => b.score - a.score);
+    const m = this.confidenceMatrix(questions, attempts);
+    const attempted = usable.filter(q => perQ.has(q.id)).length; // 仮想ID（外部模試の取込分）は着手数に含めない
+    return {
+      total: usable.length, attempted,
+      coverage: usable.length ? Math.round(attempted / usable.length * 100) : 0,
+      latestMock, prevMock,
+      passGap: latestMock ? 70 - latestMock.rate : null,
+      week, prevWeek,
+      priorities: priorities.slice(0, 3),
+      sureWrong: m.sureWrong.length, guessCorrect: m.guessCorrect.length,
+      due: this.srsDueQuestions(questions, attempts, now).length,
+    };
   },
 
   fmtClock(sec) {
