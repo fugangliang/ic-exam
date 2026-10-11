@@ -78,8 +78,7 @@ const Logic = {
       pool = pool.filter(q => (onlyWrong && st(q) === "wrong") || (onlyUnsure && st(q) === "unsure"));
     }
     pool = this.shuffle(pool, rng);
-    // 優先順: 不正解 → 未消化 → 自信なし → 正解。同じ状態の中は純粋にランダム
-    // （出題回数で並べると、アプリ未解答の模試・紙の不正解が先頭に固まるため並べない。RF指摘 2026-10-11）
+    // 優先順: 未消化・不正解 ＞ 自信なし ＞ 正解済。同じ段の中は純粋にランダム
     pool.sort((a, b) => this.STATUS_ORDER[st(a)] - this.STATUS_ORDER[st(b)]);
     return count > 0 ? pool.slice(0, count) : pool;
   },
@@ -176,8 +175,9 @@ const Logic = {
     return { total, correct, rate: total ? Math.round(correct / total * 100) : 0, todayCount };
   },
 
+  /** 自信度は「確信」「自信なし」の2択（2026-10-11）。旧データの "guess"（勘）は自信なしとして扱う */
   confidenceLabel(code) {
-    return { sure: "確信", unsure: "迷い", guess: "勘" }[code] || code;
+    return { sure: "確信", unsure: "自信なし", guess: "自信なし" }[code] || code;
   },
 
   /**
@@ -320,7 +320,7 @@ const Logic = {
 
   // ---- SRS（SM-2簡易版。状態は保存せず全履歴から再生する＝DBスキーマ変更なし） ----
 
-  /** 解答→SM-2品質(0〜5)。確信誤答=0（誤知識の定着）、勘・迷いの誤答=1、正解は確信5/迷い4/勘3、模試（自信度なし）正解=4 */
+  /** 解答→SM-2品質(0〜5)。確信誤答=0（誤知識の定着）、自信なしの誤答=1、正解は確信5/自信なし4（旧「勘」3）、模試（自信度なし）正解=4 */
   srsQuality(a) {
     if (!a.correct) return a.confidence === "sure" ? 0 : 1;
     return { sure: 5, unsure: 4, guess: 3 }[a.confidence] ?? 4;
@@ -453,7 +453,7 @@ const Logic = {
 
   /**
    * 弱点集中モードの出題セット。
-   * 問題スコア = 小分類の優先度 + 個別事情（確信誤答 +1.5／その他誤答 +1.0／勘・迷い正解 +0.5／未着手 +0.3／確信正解 0）。
+   * 問題スコア = 小分類の優先度 + 個別事情（確信誤答 +1.5／その他誤答 +1.0／自信なし正解 +0.5／未着手 +0.3／確信正解 0）。
    * 同点はランダム。count 0 は全問。
    */
   buildWeakSet(questions, attempts, count, rng = Math.random) {
@@ -527,7 +527,7 @@ const Logic = {
    * 問題の学習状態（出題優先順の基礎）。アプリの解答があればそれを最優先、無ければ外部結果（模試・紙）。
    *   "wrong"   直近の結果が不正解
    *   "new"     記録なし（未消化）
-   *   "unsure"  アプリで迷い・勘で正解（実質未習得）
+   *   "unsure"  アプリで自信なしで正解（実質未習得）
    *   "correct" 正解（確信、または模試・紙で正解）
    */
   status(q, stats) {
@@ -542,8 +542,8 @@ const Logic = {
     return p.correct ? "correct" : "wrong";
   },
 
-  /** 出題優先順: 不正解 → 未消化 → 自信なし → 正解 */
-  STATUS_ORDER: { wrong: 0, new: 1, unsure: 2, correct: 3 },
+  /** 出題優先順（RF指示 2026-10-11）: 未消化・不正解（紙・模試・アプリを区別しない）＞ 自信なし ＞ 正解済 */
+  STATUS_ORDER: { wrong: 0, new: 0, unsure: 1, correct: 2 },
 
   /** 紙演習の手書き○×（paper_results）を要約: "xx"=直近2周とも×, "x"=直近×, "o"=直近○, null=記録なし */
   paperMark(q) {

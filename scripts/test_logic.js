@@ -156,7 +156,7 @@ assert.strictEqual(stOf("s-app-wrong"), "wrong"); assert.strictEqual(stOf("s-app
 assert.strictEqual(stOf("s-new"), "new"); assert.strictEqual(stOf("s-mock-wrong"), "wrong"); assert.strictEqual(stOf("s-mock-ok"), "correct");
 assert.strictEqual(stOf("s-paper-wrong"), "wrong"); assert.strictEqual(stOf("s-paper-ok-then-app-wrong"), "wrong"); // アプリの結果が紙より優先
 const ordered = Logic.buildQuizSet(stPool, { mode: "random", count: 0, questionStats: stStats }, rng).map(x => Logic.status(stPool.find(p => p.id === x.id), stStats));
-assert.deepStrictEqual(ordered, ["wrong", "wrong", "wrong", "wrong", "new", "unsure", "correct", "correct"]);
+assert.deepStrictEqual(ordered.map(x => Logic.STATUS_ORDER[x]), [0, 0, 0, 0, 0, 1, 2, 2]); // 未消化と不正解は同列
 // 模試で正解した問題は、未消化・不正解・自信なしが残っている限り出ない
 const top4 = Logic.buildQuizSet(stPool, { mode: "random", count: 4, questionStats: stStats }, rng);
 assert.ok(!top4.some(x => x.id === "s-mock-ok"));

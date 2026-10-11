@@ -66,7 +66,7 @@
 
     <div id="filter-row" class="filter-row">
       <label class="checkbox-label"><input type="checkbox" id="filter-wrong"> 直近不正解のみ</label>
-      <label class="checkbox-label"><input type="checkbox" id="filter-unsure"> 自信なし（迷い・勘）のみ</label>
+      <label class="checkbox-label"><input type="checkbox" id="filter-unsure"> 自信なしのみ</label>
       <p id="filter-count" class="muted"></p>
     </div>
 
@@ -79,12 +79,12 @@
           <option value="0">全問</option>
         </select>
       </label>
-    <p id="count-note" class="muted">※ 不正解 → 未消化 → 自信なしで正解 → 正解 の順。同じ状態の中はランダム。判定はアプリの解答、無ければ模試・紙の記録（問題データに同梱）</p>
+    <p id="count-note" class="muted">※ 未消化・不正解 ＞ 自信なし ＞ 正解済 の順（同じ段の中はランダム）。不正解は紙・模試・アプリを区別しない</p>
     </div>
 
     <button id="btn-start" class="primary-btn">開始</button>
     <p id="home-message" class="muted"></p>
-    <p class="muted app-ver">アプリ版 v16（2026-10-11）</p>
+    <p class="muted app-ver">アプリ版 v17（2026-10-11）</p>
   </div>
 </section>
 
@@ -106,8 +106,7 @@
     <p class="confidence-note muted">自信度をタップすると解答が確定します。それまで選択肢は選び直せます</p>
     <div class="confidence-btns">
       <button class="conf-btn conf-sure" data-conf="sure">確信</button>
-      <button class="conf-btn conf-unsure" data-conf="unsure">迷い</button>
-      <button class="conf-btn conf-guess" data-conf="guess">勘</button>
+      <button class="conf-btn conf-unsure" data-conf="unsure">自信なし</button>
     </div>
   </div>
 
