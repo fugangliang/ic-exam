@@ -41,7 +41,7 @@
     attemptsCache = await DB.getAllAttempts();
     const attempts = attemptsCache;
     const st = Logic.overallStats(attempts);
-    const usable = questions.filter(q => !q.has_figure).length;
+    const usable = questions.filter(q => Logic.usable(q)).length;
     const trend = Logic.trendSummary(questions, attempts);
     $("#home-stats").innerHTML = "";
     addChip(`収録 <b>${usable}</b> 問`);
@@ -175,7 +175,7 @@
   }
 
   function buildCategorySelectors() {
-    const tree = Logic.categoryTree(questions.filter(q => !q.has_figure));
+    const tree = Logic.categoryTree(questions.filter(q => Logic.usable(q)));
     const catSel = $("#sel-category");
     const prev = catSel.value;
     catSel.innerHTML = "";
@@ -294,8 +294,27 @@
     window.scrollTo(0, 0);
   }
 
+  /** 図版ブロック: figure_data（data URI）があれば画像、無ければ「図は原本参照」注記。textNode/img のみでHTML注入なし */
+  function figureBlock(q) {
+    if (!q.has_figure && !q.figure_data) return null;
+    const box = el("div", "figure-box");
+    if (q.figure_data && /^data:image\//.test(q.figure_data)) {
+      const img = el("img", "figure-img");
+      img.src = q.figure_data; img.alt = q.figure_ref || "図";
+      img.addEventListener("click", () => img.classList.toggle("zoom"));
+      box.appendChild(img);
+      if (q.figure_ref) box.appendChild(el("div", "figure-cap", q.figure_ref));
+    } else {
+      box.appendChild(el("div", "figure-cap", `図版あり（画像未収録・原本参照${q.figure_ref ? ": " + q.figure_ref : ""}）`));
+    }
+    return box;
+  }
+
   function renderChoices(q, onTap, selected) {
     $("#quiz-body").textContent = q.body;
+    const old = $("#quiz-figure"); if (old) old.remove();
+    const fb = figureBlock(q);
+    if (fb) { fb.id = "quiz-figure"; $("#quiz-body").after(fb); }
     const box = $("#quiz-choices");
     box.innerHTML = "";
     q.choices.forEach((c, i) => {
@@ -568,6 +587,7 @@
       sm.appendChild(document.createTextNode(`${q.category}${q.subcategory ? " › " + q.subcategory : ""}：${q.body.slice(0, 60)}${q.body.length > 60 ? "…" : ""}`));
       d.appendChild(sm);
       d.appendChild(el("div", "question-body review-body", q.body));
+      const rfb = figureBlock(q); if (rfb) d.appendChild(rfb);
       const ch = el("ol", "review-choices");
       q.choices.forEach((c, i) => {
         const li = el("li", null, c);
@@ -593,7 +613,7 @@
     const attempts = attemptsCache;
     const box = $("#dash-content");
     box.innerHTML = "";
-    const usable = questions.filter(q => !q.has_figure);
+    const usable = questions.filter(q => Logic.usable(q));
     if (usable.length === 0) { box.appendChild(el("p", "muted", "問題データがありません。")); return; }
 
     const perQ = Logic.perQuestionStats(attempts);

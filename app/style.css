@@ -232,3 +232,10 @@ td.heat { text-align: center; font-weight: 600; border-radius: 4px; }
 .trend-text { flex: 1; }
 .ok-text { color: var(--green); font-weight: 600; }
 .trend-btn { margin-top: 10px; }
+
+/* 図版 */
+.figure-box { background: var(--card); border-radius: 12px; padding: 10px 12px; margin: -6px 0 14px; }
+.figure-img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 6px; cursor: zoom-in; }
+.figure-img.zoom { max-width: none; width: 180%; cursor: zoom-out; }
+.figure-box:has(.zoom) { overflow-x: auto; }
+.figure-cap { color: var(--muted); font-size: .8rem; margin-top: 4px; text-align: center; }
