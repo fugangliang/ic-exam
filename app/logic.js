@@ -105,9 +105,26 @@ const Logic = {
       if (count <= 0) return tiers.flat();
       const quota = [Math.round(count * 0.5), Math.round(count * 0.3), 0, 0];
       quota[2] = count - quota[0] - quota[1];
+      // 1セット内で同じ出典グループ（subcategory: 例「HIPS模試」「一問一答」）が偏らないよう、各グループの上限を 30% にする
+      // 上限 = max(セットの30%, そのグループが出題対象全体に占める割合×セット数)。単一グループしか無い場合は制限なしになる
+      const groupOf = q => q.subcategory || q.category || "";
+      const share = new Map();
+      for (const q of pool) share.set(groupOf(q), (share.get(groupOf(q)) || 0) + 1);
+      const capOf = g => Math.max(Math.ceil(count * 0.3), Math.ceil(count * (share.get(g) || 0) / pool.length));
+      const used = new Map();
       const out = [];
-      for (let i = 0; i < 3; i++) out.push(...tiers[i].splice(0, quota[i]));
+      const takeFrom = (t, n) => {
+        for (let k = 0; k < t.length && n > 0;) {
+          const g = groupOf(t[k]);
+          if ((used.get(g) || 0) < capOf(g)) { used.set(g, (used.get(g) || 0) + 1); out.push(t.splice(k, 1)[0]); n--; }
+          else k++;
+        }
+        return n;
+      };
+      for (let i = 0; i < 3; i++) takeFrom(tiers[i], quota[i]);
       // 不足分の補充順: 直近不正解 → 未消化 → 自信なし → 確信正解（学習価値の高い順）
+      for (const i of [1, 0, 2, 3]) if (out.length < count) takeFrom(tiers[i], count - out.length);
+      // 上限のせいで埋まらない場合は上限を外して補充
       for (const i of [1, 0, 2, 3]) if (out.length < count) out.push(...tiers[i].splice(0, count - out.length));
       return this.shuffle(out, rng);
     }
