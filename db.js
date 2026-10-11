@@ -60,6 +60,11 @@ const DB = (() => {
       return tx("attempts", "readwrite", s => { s.add(attempt); });
     },
 
+    /** 模試終了時の一括追加（1トランザクション） */
+    addAttempts(attempts) {
+      return tx("attempts", "readwrite", s => { for (const a of attempts) s.add(a); }).then(() => attempts.length);
+    },
+
     restoreAttempts(attempts) {
       return tx("attempts", "readwrite", s => {
         for (const a of attempts) {

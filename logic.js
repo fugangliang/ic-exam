@@ -237,6 +237,290 @@ const Logic = {
     }
     return null;
   },
+  // ===================== P2/P3: 模試・ダッシュボード・弱点集中・SRS =====================
+
+  /**
+   * CBT本番の規格（協会公表: 36問・120分）。問題集データは1大問を空欄ごとに分解しているため
+   * （実データ215大問中204が4空欄）、アプリ内の1問＝1空欄として 36×4＝144単位を本番相当とする。
+   */
+  MOCK: { fullProblems: 36, unitsPerProblem: 4, fullMinutes: 120 },
+
+  /** 模試プリセット。secPerQ は本番の 120分/144単位 = 50秒 で全プリセット共通 */
+  mockPresets() {
+    const m = this.MOCK;
+    const fullCount = m.fullProblems * m.unitsPerProblem;
+    const secPerQ = Math.round(m.fullMinutes * 60 / fullCount);
+    const mk = (key, label, count) => ({ key, label, count, minutes: Math.round(count * secPerQ / 60), secPerQ });
+    return [
+      mk("full", "本番相当", fullCount),
+      mk("half", "ハーフ", fullCount / 2),
+      mk("quick", "クイック", fullCount / 4),
+    ];
+  },
+
+  /** 本番の1問あたり時間予算（秒）。解答時間分布の「超過」判定にも使う */
+  mockSecPerQuestion() { return this.mockPresets()[0].secPerQ; },
+
+  /**
+   * 模試セット: 分野構成比を問題バンクの収録比に合わせた層化抽出（出題配分の近似）。
+   * 各分野の割当は比例配分→端数は大きい順に配る。分野内は出題回数の少ない問題を優先し、同回数内はランダム。
+   */
+  buildMockSet(questions, count, questionStats, rng = Math.random) {
+    const pool = questions.filter(q => !q.has_figure);
+    if (count <= 0 || count >= pool.length) return this.shuffle(pool, rng);
+    const byCat = new Map();
+    for (const q of pool) {
+      if (!byCat.has(q.category)) byCat.set(q.category, []);
+      byCat.get(q.category).push(q);
+    }
+    const cats = [...byCat.entries()].map(([cat, qs]) => {
+      const exact = count * qs.length / pool.length;
+      return { cat, qs, exact, n: Math.floor(exact) };
+    });
+    let rest = count - cats.reduce((s, c) => s + c.n, 0);
+    cats.sort((a, b) => (b.exact - b.n) - (a.exact - a.n));
+    for (const c of cats) { if (rest <= 0) break; if (c.n < c.qs.length) { c.n++; rest--; } }
+    let out = [];
+    for (const c of cats) {
+      let qs = this.shuffle(c.qs, rng);
+      if (questionStats) qs.sort((a, b) => (questionStats.get(a.id)?.times || 0) - (questionStats.get(b.id)?.times || 0));
+      out = out.concat(qs.slice(0, c.n));
+    }
+    return this.shuffle(out, rng);
+  },
+
+  /**
+   * 模試の採点。answers: [{question_id, choice(null=未解答), time_sec}]
+   * 未解答は不正解扱い（本番同様）。返値は attempts（DB保存形式）＋集計。
+   */
+  gradeMock(list, answers, sessionId, timestamp) {
+    const attempts = list.map((q, i) => {
+      const a = answers[i] || {};
+      const skipped = a.choice === null || a.choice === undefined;
+      return {
+        question_id: q.id, timestamp: timestamp + i, // 同一模試内で順序が保てるよう1ms刻み
+        correct: !skipped && a.choice === q.answer,
+        time_sec: a.time_sec || 0,
+        confidence: null, mode: "mock", session_id: sessionId,
+        choice: skipped ? null : a.choice, skipped,
+      };
+    });
+    const correct = attempts.filter(a => a.correct).length;
+    return { attempts, total: list.length, correct, skipped: attempts.filter(a => a.skipped).length,
+      rate: list.length ? Math.round(correct / list.length * 100) : 0,
+      timeSec: attempts.reduce((s, a) => s + a.time_sec, 0) };
+  },
+
+  /** 模試の時系列（ダッシュボード「正答率推移」用）。attempts の mode==="mock" を session_id で束ねる */
+  mockSeries(attempts) {
+    const map = new Map();
+    for (const a of attempts) {
+      if (a.mode !== "mock" || !a.session_id) continue;
+      let s = map.get(a.session_id);
+      if (!s) { s = { session_id: a.session_id, timestamp: a.timestamp, total: 0, correct: 0, timeSec: 0 }; map.set(a.session_id, s); }
+      s.total++; if (a.correct) s.correct++; s.timeSec += a.time_sec || 0;
+      if (a.timestamp < s.timestamp) s.timestamp = a.timestamp;
+    }
+    return [...map.values()].map(s => ({ ...s, rate: s.total ? Math.round(s.correct / s.total * 100) : 0 }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+  },
+
+  // ---- SRS（SM-2簡易版。状態は保存せず全履歴から再生する＝DBスキーマ変更なし） ----
+
+  /** 解答→SM-2品質(0〜5)。確信誤答=0（誤知識の定着）、勘・迷いの誤答=1、正解は確信5/迷い4/勘3、模試（自信度なし）正解=4 */
+  srsQuality(a) {
+    if (!a.correct) return a.confidence === "sure" ? 0 : 1;
+    return { sure: 5, unsure: 4, guess: 3 }[a.confidence] ?? 4;
+  },
+
+  /**
+   * 問題ごとの SRS 状態を履歴から再生する。
+   * 返値: Map(question_id -> {reps, interval(日), ease, nextDue(ms), lastTimestamp})
+   */
+  srsStates(attempts) {
+    const DAY = 86400000;
+    const sorted = attempts.slice().sort((a, b) => a.timestamp - b.timestamp);
+    const map = new Map();
+    for (const a of sorted) {
+      let s = map.get(a.question_id);
+      if (!s) { s = { reps: 0, interval: 0, ease: 2.5, nextDue: 0, lastTimestamp: 0 }; map.set(a.question_id, s); }
+      const q = this.srsQuality(a);
+      if (q < 3) { s.reps = 0; s.interval = 1; }
+      else {
+        s.reps++;
+        s.interval = s.reps === 1 ? 1 : s.reps === 2 ? 6 : Math.round(s.interval * s.ease);
+      }
+      s.ease = Math.max(1.3, s.ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)));
+      s.lastTimestamp = a.timestamp;
+      s.nextDue = a.timestamp + s.interval * DAY;
+    }
+    return map;
+  },
+
+  /** 本日復習すべき問題（nextDue到来）。期限超過が大きい順。has_figure は除外 */
+  srsDueQuestions(questions, attempts, now = Date.now()) {
+    const states = this.srsStates(attempts);
+    return questions.filter(q => !q.has_figure && states.has(q.id) && states.get(q.id).nextDue <= now)
+      .sort((a, b) => states.get(a.id).nextDue - states.get(b.id).nextDue);
+  },
+
+  // ---- ダッシュボード集計 ----
+
+  /** 問題ごとの最新解答（timestamp最大）。模試・演習を区別しない */
+  latestAttempts(attempts) {
+    const map = new Map();
+    for (const a of attempts) {
+      const cur = map.get(a.question_id);
+      if (!cur || a.timestamp >= cur.timestamp) map.set(a.question_id, a);
+    }
+    return map;
+  },
+
+  /**
+   * 自信度×正誤マトリクス。4象限は「自信度付きの最新解答」（演習）で判定する。
+   * 模試は自信度を記録しないため、模試で直近解答していても演習時の自信度判定を保持する
+   * （模試全問受験でマトリクスが空になるのを防ぐ）。演習履歴が無く模試のみの問題は noConf* に分ける。
+   * sureWrong=確信誤答（最優先）、guessCorrect=勘・迷いで正解（実質未習得）。各象限に問題IDを持つ。
+   */
+  confidenceMatrix(questions, attempts) {
+    const latestConf = this.latestAttempts(attempts.filter(a => a.confidence));
+    const latestAny = this.latestAttempts(attempts);
+    const m = { sureCorrect: [], guessCorrect: [], sureWrong: [], guessWrong: [], noConfCorrect: [], noConfWrong: [] };
+    for (const q of questions) {
+      if (q.has_figure) continue;
+      const a = latestConf.get(q.id);
+      if (a) {
+        if (a.confidence === "sure") (a.correct ? m.sureCorrect : m.sureWrong).push(q.id);
+        else (a.correct ? m.guessCorrect : m.guessWrong).push(q.id);
+        continue;
+      }
+      const b = latestAny.get(q.id);
+      if (b) (b.correct ? m.noConfCorrect : m.noConfWrong).push(q.id);
+    }
+    return m;
+  },
+
+  /**
+   * 分野×小分類ヒートマップ行。各行: total, attempted, accuracy(全解答), latestAccuracy(最新解答の正答率),
+   * wrongNow, sureWrong, avgTime, priority（弱点優先度スコア）。
+   * 優先度 = (1 − 最新正答率) × (1 + 確信誤答率) × 出題頻度重み。
+   * 出題頻度重みは分野の収録問題数シェア÷平均シェア（問題集の収録配分を例年の出題配分の近似とする）。
+   * 未着手の小分類は最新正答率を0.5（未知）として中位に置く。
+   */
+  heatmapRows(questions, attempts) {
+    const usable = questions.filter(q => !q.has_figure);
+    const perQ = this.perQuestionStats(attempts);
+    const latest = this.latestAttempts(attempts);
+    const catCount = new Map();
+    for (const q of usable) catCount.set(q.category, (catCount.get(q.category) || 0) + 1);
+    const meanShare = catCount.size ? 1 / catCount.size : 1;
+    const rows = new Map();
+    for (const q of usable) {
+      const key = q.category + "\u0000" + (q.subcategory || "");
+      if (!rows.has(key)) rows.set(key, { category: q.category, subcategory: q.subcategory || "", total: 0, attempted: 0,
+        attemptsN: 0, correctN: 0, latestCorrect: 0, wrongNow: 0, sureWrong: 0, timeSum: 0, timeN: 0 });
+      const r = rows.get(key);
+      r.total++;
+      const s = perQ.get(q.id);
+      if (!s) continue;
+      r.attempted++; r.attemptsN += s.times; r.correctN += s.correctCount;
+      const a = latest.get(q.id);
+      if (a.correct) r.latestCorrect++; else { r.wrongNow++; if (a.confidence === "sure") r.sureWrong++; }
+    }
+    const keyOf = new Map(usable.map(q => [q.id, q.category + "\u0000" + (q.subcategory || "")]));
+    for (const a of attempts) {
+      const r = rows.get(keyOf.get(a.question_id));
+      if (!r) continue;
+      if (typeof a.time_sec === "number") { r.timeSum += a.time_sec; r.timeN++; }
+    }
+    const out = [...rows.values()].map(r => {
+      const weight = (catCount.get(r.category) / usable.length) / meanShare;
+      const latestAcc = r.attempted ? r.latestCorrect / r.attempted : 0.5;
+      const sureWrongRate = r.attempted ? r.sureWrong / r.attempted : 0;
+      return { ...r,
+        accuracy: r.attemptsN ? Math.round(r.correctN / r.attemptsN * 100) : null,
+        latestAccuracy: r.attempted ? Math.round(latestAcc * 100) : null,
+        avgTime: r.timeN ? Math.round(r.timeSum / r.timeN) : null,
+        weight: Math.round(weight * 100) / 100,
+        priority: Math.round((1 - latestAcc) * (1 + sureWrongRate) * weight * 100) / 100,
+      };
+    });
+    out.sort((a, b) => b.priority - a.priority || a.category.localeCompare(b.category, "ja"));
+    return out;
+  },
+
+  /** ヒートマップ色階調（0〜4、null=未着手→-1）。閾値: <50 / <65 / <75 / <85 / ≥85 */
+  heatLevel(acc) {
+    if (acc === null || acc === undefined) return -1;
+    return acc < 50 ? 0 : acc < 65 ? 1 : acc < 75 ? 2 : acc < 85 ? 3 : 4;
+  },
+
+  /**
+   * 弱点集中モードの出題セット。
+   * 問題スコア = 小分類の優先度 + 個別事情（確信誤答 +1.5／その他誤答 +1.0／勘・迷い正解 +0.5／未着手 +0.3／確信正解 0）。
+   * 同点はランダム。count 0 は全問。
+   */
+  buildWeakSet(questions, attempts, count, rng = Math.random) {
+    const rows = this.heatmapRows(questions, attempts);
+    const prio = new Map(rows.map(r => [r.category + "\u0000" + r.subcategory, r.priority]));
+    const latest = this.latestAttempts(attempts);
+    const scored = this.shuffle(questions.filter(q => !q.has_figure), rng).map(q => {
+      const a = latest.get(q.id);
+      let bonus = 0.3;
+      if (a) {
+        if (!a.correct) bonus = a.confidence === "sure" ? 1.5 : 1.0;
+        else bonus = a.confidence === "sure" ? 0 : 0.5;
+      }
+      return { q, score: (prio.get(q.category + "\u0000" + (q.subcategory || "")) || 0) + bonus };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    const list = scored.map(x => x.q);
+    return count > 0 ? list.slice(0, count) : list;
+  },
+
+  /**
+   * 解答時間分布（分野別）。budgetSec を超えた解答の割合（overRate）と、正解なのに超過した割合（correctOverRate）。
+   * 「正解でも時間超過傾向」＝CBT時間管理上の要注意分野。
+   */
+  timeDistribution(questions, attempts, budgetSec) {
+    const catOf = new Map(questions.filter(q => !q.has_figure).map(q => [q.id, q.category]));
+    const byCat = new Map();
+    for (const a of attempts) {
+      const cat = catOf.get(a.question_id);
+      if (!cat || typeof a.time_sec !== "number") continue;
+      if (!byCat.has(cat)) byCat.set(cat, { category: cat, n: 0, timeSum: 0, over: 0, correctOver: 0, correct: 0 });
+      const c = byCat.get(cat);
+      c.n++; c.timeSum += a.time_sec;
+      if (a.time_sec > budgetSec) { c.over++; if (a.correct) c.correctOver++; }
+      if (a.correct) c.correct++;
+    }
+    return [...byCat.values()].map(c => ({ ...c,
+      avgTime: Math.round(c.timeSum / c.n),
+      overRate: Math.round(c.over / c.n * 100),
+      correctOverRate: c.correct ? Math.round(c.correctOver / c.correct * 100) : 0,
+    })).sort((a, b) => b.overRate - a.overRate || b.avgTime - a.avgTime);
+  },
+
+  /** 日別正答率（直近 days 日、解答があった日のみ）。演習・模試を含む */
+  dailyAccuracy(attempts, days = 14, now = Date.now()) {
+    const from = new Date(now); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() - (days - 1));
+    const map = new Map();
+    for (const a of attempts) {
+      if (a.timestamp < from.getTime()) continue;
+      const d = new Date(a.timestamp);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (!map.has(key)) map.set(key, { date: key, total: 0, correct: 0 });
+      const r = map.get(key); r.total++; if (a.correct) r.correct++;
+    }
+    return [...map.values()].map(r => ({ ...r, rate: Math.round(r.correct / r.total * 100) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  },
+
+  fmtClock(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+    return (h ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + ":" + String(s).padStart(2, "0");
+  },
 };
 
 /* node テスト用 */

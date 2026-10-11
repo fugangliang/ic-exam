@@ -1,14 +1,22 @@
-/* UI 制御（画面遷移・出題フロー・データ管理） */
+/* UI 制御（画面遷移・出題フロー・模試・ダッシュボード・データ管理） */
 
 (() => {
   // ---- 状態 ----
   let questions = [];            // 全問題
   let questionsById = new Map();
-  let session = null;            // {list, index, attempts, pendingChoice, qStart, timerId}
+  let attemptsCache = [];        // refreshHome 時点の全履歴（情報パネル用）
+  let session = null;            // 演習: {kind:"practice", list, index, attempts, pendingChoice, qStart, timerId, answered}
+                                 // 模試: {kind:"mock", list, index, answers, qStart, deadline, timerId, sessionId, preset}
   let mode = "random";
 
   const $ = sel => document.querySelector(sel);
   const $$ = sel => document.querySelectorAll(sel);
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
 
   // ---- 画面遷移 ----
   function show(name) {
@@ -21,6 +29,7 @@
     const nav = e.target.closest("[data-nav]");
     if (nav) {
       if (nav.dataset.nav === "home") refreshHome();
+      if (nav.dataset.nav === "dashboard") renderDashboard();
       show(nav.dataset.nav);
     }
   });
@@ -29,62 +38,86 @@
   async function refreshHome() {
     questions = await DB.getAllQuestions();
     questionsById = new Map(questions.map(q => [q.id, q]));
-    const attempts = await DB.getAllAttempts();
+    attemptsCache = await DB.getAllAttempts();
+    const attempts = attemptsCache;
     const st = Logic.overallStats(attempts);
     const usable = questions.filter(q => !q.has_figure).length;
+    const attempted = Logic.perQuestionStats(attempts).size;
     $("#home-stats").innerHTML = "";
     addChip(`収録 <b>${usable}</b> 問`);
+    addChip(`消化 <b>${usable ? Math.round(attempted / usable * 100) : 0}%</b>（${attempted}/${usable}）`);
     addChip(`累計正答率 <b>${st.rate}%</b>（${st.correct}/${st.total}）`);
     addChip(`今日 <b>${st.todayCount}</b> 問`);
     buildCategorySelectors();
+    buildMockPresetSelector();
     renderCategoryStats(Logic.categoryStats(questions, attempts));
+    renderModePanels();
     await updateFilterCount();
     $("#home-message").textContent = usable === 0
       ? "問題データがありません。右上の⚙からJSONをimportしてください。" : "";
   }
 
   function addChip(html) {
-    const d = document.createElement("div");
-    d.className = "stat-chip";
+    const d = el("div", "stat-chip");
     d.innerHTML = html; // 内部生成文字列のみ（ユーザーデータは含めない）
     $("#home-stats").appendChild(d);
   }
 
   /** 分野別の得意・不得意テーブル（全履歴ベース。苦手＝直近不正解が多い分野を先頭に表示） */
   function renderCategoryStats(list) {
-    const el = $("#category-stats");
-    el.innerHTML = "";
-    if (list.length === 0) {
-      const p = document.createElement("p");
-      p.className = "muted";
-      p.textContent = "問題データがありません。";
-      el.appendChild(p);
-      return;
-    }
-    const table = document.createElement("table");
-    table.className = "summary-table";
-    table.innerHTML = "<tr><th>分野</th><th>総問題数</th><th>正答率</th><th>要復習</th></tr>";
+    const box = $("#category-stats");
+    box.innerHTML = "";
+    if (list.length === 0) { box.appendChild(el("p", "muted", "問題データがありません。")); return; }
+    const table = el("table", "summary-table");
+    table.innerHTML = "<tr><th>分野</th><th>消化</th><th>正答率</th><th>要復習</th></tr>";
     for (const c of list) {
-      const tr = document.createElement("tr");
+      const tr = el("tr");
       const accuracyText = c.accuracy === null ? "―" : `${c.accuracy}%`;
-      const reviewText = c.attemptedQuestions > 0 ? `${c.wrongNow}/${c.attemptedQuestions}問` : "―";
-      [c.category, `${c.totalQuestions}問`, accuracyText, reviewText].forEach(t => {
-        const td = document.createElement("td");
-        td.textContent = t;
-        tr.appendChild(td);
-      });
+      const reviewText = c.attemptedQuestions > 0 ? `${c.wrongNow}問` : "―";
+      [c.category, `${c.attemptedQuestions}/${c.totalQuestions}`, accuracyText, reviewText]
+        .forEach(t => tr.appendChild(el("td", null, t)));
       table.appendChild(tr);
     }
-    el.appendChild(table);
+    box.appendChild(table);
+  }
+
+  /** モードごとの補助パネル表示（弱点集中＝優先小分類、SRS＝本日の復習数） */
+  function renderModePanels() {
+    $("#category-selectors").classList.toggle("hidden", mode !== "category");
+    $("#weak-info").classList.toggle("hidden", mode !== "weak");
+    $("#srs-info").classList.toggle("hidden", mode !== "srs");
+    $("#mock-settings").classList.toggle("hidden", mode !== "mock");
+    $("#filter-row").classList.toggle("hidden", mode !== "random" && mode !== "category");
+    $("#count-row").classList.toggle("hidden", mode === "mock");
+    $("#count-note").classList.toggle("hidden", mode !== "random" && mode !== "category");
+    $("#btn-start").textContent = mode === "mock" ? "模試を開始" : "開始";
+
+    if (mode === "weak") {
+      const box = $("#weak-info"); box.innerHTML = "";
+      const rows = Logic.heatmapRows(questions, attemptsCache).filter(r => r.priority > 0).slice(0, 5);
+      box.appendChild(el("p", "mode-info-head", "優先度の高い小分類（確信誤答・直近正答率・出題配分から算出）"));
+      if (rows.length === 0) box.appendChild(el("p", "muted", "履歴がまだありません。まずランダム出題で全体を1周してください。"));
+      for (const r of rows) {
+        box.appendChild(el("p", "mode-info-row",
+          `${r.category} › ${r.subcategory || "―"}：最新正答率 ${r.latestAccuracy === null ? "未着手" : r.latestAccuracy + "%"}／確信誤答 ${r.sureWrong}問`));
+      }
+    }
+    if (mode === "srs") {
+      const box = $("#srs-info"); box.innerHTML = "";
+      const due = Logic.srsDueQuestions(questions, attemptsCache);
+      box.appendChild(el("p", "mode-info-head", `本日の復習予定: ${due.length} 問`));
+      box.appendChild(el("p", "muted",
+        "SM-2簡易版。正解を重ねるほど間隔が延び（1日→6日→…）、誤答で1日に戻ります。確信誤答は最も強く戻します。期限超過が大きい問題から出題。"));
+    }
   }
 
   /** 絞り込み（直近不正解のみ／自信なしのみ）チェック時の対象問題数をリアルタイム表示 */
   async function updateFilterCount() {
     const onlyWrong = $("#filter-wrong").checked;
     const onlyUnsure = $("#filter-unsure").checked;
-    if (!onlyWrong && !onlyUnsure) { $("#filter-count").textContent = ""; return; }
-    const attempts = await DB.getAllAttempts();
-    const questionStats = Logic.perQuestionStats(attempts);
+    const applies = (mode === "random" || mode === "category") && (onlyWrong || onlyUnsure);
+    if (!applies) { $("#filter-count").textContent = ""; return; }
+    const questionStats = Logic.perQuestionStats(attemptsCache);
     const list = Logic.buildQuizSet(questions, {
       mode,
       category: $("#sel-category").value,
@@ -101,8 +134,7 @@
     const prev = catSel.value;
     catSel.innerHTML = "";
     for (const cat of tree.keys()) {
-      const o = document.createElement("option");
-      o.value = o.textContent = cat;
+      const o = el("option", null, cat); o.value = cat;
       catSel.appendChild(o);
     }
     if (prev && tree.has(prev)) catSel.value = prev;
@@ -112,58 +144,94 @@
 
   function buildSubcategorySelector(tree) {
     const subSel = $("#sel-subcategory");
+    const prev = subSel.value;
     subSel.innerHTML = '<option value="">すべて</option>';
     const subs = tree.get($("#sel-category").value);
     if (subs) for (const s of subs) {
-      const o = document.createElement("option");
-      o.value = o.textContent = s;
+      const o = el("option", null, s); o.value = s;
       subSel.appendChild(o);
     }
+    if (prev && subs && subs.has(prev)) subSel.value = prev;
     subSel.onchange = updateFilterCount;
+  }
+
+  function buildMockPresetSelector() {
+    const sel = $("#sel-mock-preset");
+    if (sel.options.length) return;
+    for (const p of Logic.mockPresets()) {
+      const o = el("option", null, `${p.label}（${p.count}問・${p.minutes}分）`); o.value = p.key;
+      sel.appendChild(o);
+    }
   }
 
   $$(".mode-tab").forEach(btn => btn.addEventListener("click", () => {
     $$(".mode-tab").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     mode = btn.dataset.mode;
-    $("#category-selectors").classList.toggle("hidden", mode !== "category");
+    renderModePanels();
     updateFilterCount();
   }));
 
   $("#filter-wrong").addEventListener("change", updateFilterCount);
   $("#filter-unsure").addEventListener("change", updateFilterCount);
 
-  // ---- 出題セッション ----
+  // ---- 出題セッション開始 ----
   $("#btn-start").addEventListener("click", async () => {
-    const onlyWrong = $("#filter-wrong").checked;
-    const onlyUnsure = $("#filter-unsure").checked;
-    // 絞り込みの有無に関わらず取得する: 通常出題でも出題回数の少ない問題を優先するため
-    const questionStats = Logic.perQuestionStats(await DB.getAllAttempts());
-    const list = Logic.buildQuizSet(questions, {
-      mode,
-      category: $("#sel-category").value,
-      subcategory: $("#sel-subcategory").value,
-      count: parseInt($("#sel-count").value, 10),
-      onlyWrong, onlyUnsure, questionStats,
-    });
-    if (list.length === 0) {
-      $("#home-message").textContent = "条件に合う問題がありません。";
+    const attempts = await DB.getAllAttempts();
+    attemptsCache = attempts;
+    const count = parseInt($("#sel-count").value, 10);
+    let list;
+    if (mode === "mock") {
+      const preset = Logic.mockPresets().find(p => p.key === $("#sel-mock-preset").value) || Logic.mockPresets()[0];
+      list = Logic.buildMockSet(questions, preset.count, Logic.perQuestionStats(attempts));
+      if (list.length === 0) { $("#home-message").textContent = "問題データがありません。"; return; }
+      if (list.length < preset.count) {
+        $("#home-message").textContent = `収録数が不足のため ${list.length} 問で実施します。`;
+      }
+      startMock(list, preset);
       return;
     }
-    session = { list, index: 0, attempts: [], pendingChoice: null, qStart: 0, timerId: null };
-    show("quiz");
-    renderQuestion();
+    if (mode === "weak") {
+      list = Logic.buildWeakSet(questions, attempts, count);
+    } else if (mode === "srs") {
+      list = Logic.srsDueQuestions(questions, attempts);
+      if (count > 0) list = list.slice(0, count);
+      if (list.length === 0) { $("#home-message").textContent = "本日の復習予定はありません。"; return; }
+    } else {
+      list = Logic.buildQuizSet(questions, {
+        mode,
+        category: $("#sel-category").value,
+        subcategory: $("#sel-subcategory").value,
+        count,
+        onlyWrong: $("#filter-wrong").checked,
+        onlyUnsure: $("#filter-unsure").checked,
+        questionStats: Logic.perQuestionStats(attempts),
+      });
+    }
+    if (list.length === 0) { $("#home-message").textContent = "条件に合う問題がありません。"; return; }
+    startPractice(list);
   });
 
+  function startPractice(list) {
+    session = { kind: "practice", list, index: 0, attempts: [], pendingChoice: null, qStart: 0, timerId: null };
+    $("#quiz-timer").classList.remove("warn");
+    show("quiz");
+    renderQuestion();
+  }
+
   $("#btn-quit").addEventListener("click", () => {
-    if (session && session.index < session.list.length &&
-        !confirm("演習を中断しますか？（解答済み分の履歴は保存されています）")) return;
+    if (!session) { show("home"); return; }
+    const msg = session.kind === "mock"
+      ? "模試を中断しますか？（採点されず、履歴にも残りません）"
+      : "演習を中断しますか？（解答済み分の履歴は保存されています）";
+    if (session.index < session.list.length && !confirm(msg)) return;
     stopTimer();
     session = null;
     refreshHome();
     show("home");
   });
 
+  // ---- 演習（1問ごとに正誤・解説） ----
   function renderQuestion() {
     const q = session.list[session.index];
     session.pendingChoice = null;
@@ -171,31 +239,29 @@
     $("#quiz-progress").textContent = `${session.index + 1} / ${session.list.length}`;
     $("#quiz-meta").textContent =
       `${q.category}${q.subcategory ? " › " + q.subcategory : ""}｜出典: ${q.source || "―"}`;
-    $("#quiz-body").textContent = q.body;
-
-    const box = $("#quiz-choices");
-    box.innerHTML = "";
-    q.choices.forEach((c, i) => {
-      const b = document.createElement("button");
-      b.className = "choice-btn";
-      const num = document.createElement("span");
-      num.className = "choice-num";
-      num.textContent = String(i + 1);
-      b.appendChild(num);
-      b.appendChild(document.createTextNode(c));
-      b.addEventListener("click", () => onChoice(i));
-      box.appendChild(b);
-    });
-
+    renderChoices(q, i => onChoice(i), null);
     $("#confidence-panel").classList.add("hidden");
     $("#result-panel").classList.add("hidden");
+    $("#mock-nav").classList.add("hidden");
     startTimer();
     window.scrollTo(0, 0);
   }
 
-  function fmtTime(s) {
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  function renderChoices(q, onTap, selected) {
+    $("#quiz-body").textContent = q.body;
+    const box = $("#quiz-choices");
+    box.innerHTML = "";
+    q.choices.forEach((c, i) => {
+      const b = el("button", "choice-btn");
+      b.appendChild(el("span", "choice-num", String(i + 1)));
+      b.appendChild(document.createTextNode(c));
+      if (selected === i) b.classList.add("selected");
+      b.addEventListener("click", () => onTap(i));
+      box.appendChild(b);
+    });
   }
+
+  function fmtTime(s) { return Logic.fmtClock(s); }
 
   function startTimer() {
     session.qStart = Date.now();
@@ -223,7 +289,7 @@
 
   /** タップ2: 自信度（＝解答確定） → 履歴保存・正誤と解説を表示 */
   $$(".conf-btn").forEach(btn => btn.addEventListener("click", async () => {
-    if (!session || session.pendingChoice === null || session.answered) return;
+    if (!session || session.kind !== "practice" || session.pendingChoice === null || session.answered) return;
     session.answered = true;
     const q = session.list[session.index];
     const { choice, timeSec } = session.pendingChoice;
@@ -249,48 +315,42 @@
     v.className = correct ? "ok" : "ng";
     const exp = $("#result-explanation");
     exp.innerHTML = "";
-    const head = document.createElement("div");
-    head.className = "exp-head";
-    head.textContent = "解説";
-    exp.appendChild(head);
-    if (!correct) {
-      const my = document.createElement("div");
-      my.className = "exp-your-answer";
-      my.textContent = `あなたの解答: ${choice + 1}「${q.choices[choice]}」／正答: ${q.answer + 1}「${q.choices[q.answer]}」`;
-      exp.appendChild(my);
-      const excerpt = Logic.choiceExplanationExcerpt(q.explanation || "", choice, q.choices[choice]);
-      if (excerpt) {
-        const yc = document.createElement("div");
-        yc.className = "exp-your-choice";
-        const label = document.createElement("span");
-        label.className = "exp-your-choice-label";
-        label.textContent = "選んだ肢の解説: ";
-        yc.appendChild(label);
-        yc.appendChild(document.createTextNode(excerpt));
-        exp.appendChild(yc);
-      }
-    }
-    appendExplanation(exp, q.explanation || "（解説未収録）",
-      correct ? null : Logic.explanationHighlightKey(q.choices[choice]));
+    fillExplanation(exp, q, choice, correct);
     $("#result-panel").classList.remove("hidden");
     $("#btn-next").textContent =
       session.index + 1 < session.list.length ? "次の問題" : "結果を見る";
   }));
 
+  /** 解説ブロックを組み立てる（演習の結果パネル・模試の見直しで共用）。choice=null は未解答 */
+  function fillExplanation(exp, q, choice, correct) {
+    exp.appendChild(el("div", "exp-head", "解説"));
+    if (!correct) {
+      const yours = choice === null || choice === undefined ? "未解答" : `${choice + 1}「${q.choices[choice]}」`;
+      exp.appendChild(el("div", "exp-your-answer", `あなたの解答: ${yours}／正答: ${q.answer + 1}「${q.choices[q.answer]}」`));
+      if (choice !== null && choice !== undefined) {
+        const excerpt = Logic.choiceExplanationExcerpt(q.explanation || "", choice, q.choices[choice]);
+        if (excerpt) {
+          const yc = el("div", "exp-your-choice");
+          yc.appendChild(el("span", "exp-your-choice-label", "選んだ肢の解説: "));
+          yc.appendChild(document.createTextNode(excerpt));
+          exp.appendChild(yc);
+        }
+      }
+    }
+    const term = (!correct && choice !== null && choice !== undefined) ? Logic.explanationHighlightKey(q.choices[choice]) : null;
+    appendExplanation(exp, q.explanation || "（解説未収録）", term);
+  }
+
   /** 解説本文を表示。不正解時、選んだ肢の語（term）が本文中にあれば <mark> で強調し、
       自分の肢がなぜ誤りかの説明箇所を見つけやすくする（textNodeで組むためHTML注入なし） */
-  function appendExplanation(el, text, term) {
+  function appendExplanation(box, text, term) {
     if (!term || !text.includes(term)) {
-      el.appendChild(document.createTextNode(text));
+      box.appendChild(document.createTextNode(text));
       return;
     }
     text.split(term).forEach((part, i) => {
-      if (i > 0) {
-        const m = document.createElement("mark");
-        m.textContent = term;
-        el.appendChild(m);
-      }
-      el.appendChild(document.createTextNode(part));
+      if (i > 0) box.appendChild(el("mark", null, term));
+      box.appendChild(document.createTextNode(part));
     });
   }
 
@@ -301,39 +361,336 @@
     else showSummary();
   });
 
-  // ---- 結果 ----
+  // ---- 演習結果 ----
   function showSummary() {
     const { total, correct, byCat } = Logic.summarize(session.attempts, questionsById);
     const rate = total ? Math.round(correct / total * 100) : 0;
-    const el = $("#summary-content");
-    el.innerHTML = "";
-
-    const score = document.createElement("div");
-    score.className = "summary-score";
-    score.textContent = `${correct} / ${total}（${rate}%）`;
-    el.appendChild(score);
-
-    const note = document.createElement("p");
-    note.className = "muted";
+    const box = $("#summary-content");
+    box.innerHTML = "";
+    $("#summary-title").textContent = "結果";
+    box.appendChild(el("div", "summary-score", `${correct} / ${total}（${rate}%）`));
+    const note = el("p", "muted", "合格ライン目安: 70〜75%");
     note.style.textAlign = "center";
-    note.textContent = "合格ライン目安: 70〜75%";
-    el.appendChild(note);
-
-    const table = document.createElement("table");
-    table.className = "summary-table";
-    table.innerHTML = "<tr><th>分野</th><th>正答</th><th>平均時間</th></tr>";
-    for (const [cat, c] of byCat) {
-      const tr = document.createElement("tr");
-      [cat, `${c.correct}/${c.total}`, `${Math.round(c.time / c.total)}秒`].forEach(t => {
-        const td = document.createElement("td");
-        td.textContent = t;
-        tr.appendChild(td);
-      });
-      table.appendChild(tr);
-    }
-    el.appendChild(table);
+    box.appendChild(note);
+    box.appendChild(categoryTable(byCat));
     session = null;
     show("summary");
+  }
+
+  function categoryTable(byCat) {
+    const table = el("table", "summary-table");
+    table.innerHTML = "<tr><th>分野</th><th>正答</th><th>平均時間</th></tr>";
+    for (const [cat, c] of byCat) {
+      const tr = el("tr");
+      [cat, `${c.correct}/${c.total}`, `${Math.round(c.time / c.total)}秒`].forEach(t => tr.appendChild(el("td", null, t)));
+      table.appendChild(tr);
+    }
+    return table;
+  }
+
+  // ---- 模試（CBT本番形式: 制限時間・正誤非表示・前後移動可・終了後に一括採点＋見直し） ----
+  function startMock(list, preset) {
+    const now = Date.now();
+    session = {
+      kind: "mock", list, index: 0, preset,
+      answers: list.map(() => ({ choice: null, time_sec: 0 })),
+      qStart: now, deadline: now + preset.minutes * 60000, timerId: null,
+      sessionId: `mock-${new Date(now).toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`,
+    };
+    $("#confidence-panel").classList.add("hidden");
+    $("#result-panel").classList.add("hidden");
+    show("quiz");
+    renderMockQuestion();
+    session.timerId = setInterval(tickMock, 500);
+    tickMock();
+  }
+
+  function tickMock() {
+    if (!session || session.kind !== "mock") return;
+    const remain = Math.ceil((session.deadline - Date.now()) / 1000);
+    const t = $("#quiz-timer");
+    t.textContent = "残 " + fmtTime(remain);
+    t.classList.toggle("warn", remain <= 300);
+    if (remain <= 0) finishMock(true);
+  }
+
+  function renderMockQuestion() {
+    const q = session.list[session.index];
+    const a = session.answers[session.index];
+    session.qStart = Date.now();
+    $("#quiz-progress").textContent = `問 ${session.index + 1} / ${session.list.length}`;
+    $("#quiz-meta").textContent = `模試（${session.preset.label}）`;
+    renderChoices(q, i => {
+      a.choice = a.choice === i ? null : i; // 同じ肢の再タップで解答取消
+      $$("#quiz-choices .choice-btn").forEach((b, j) => b.classList.toggle("selected", j === a.choice));
+      updateMockStatus();
+    }, a.choice);
+    $("#mock-nav").classList.remove("hidden");
+    $("#btn-mock-prev").disabled = session.index === 0;
+    $("#btn-mock-next").textContent = session.index + 1 < session.list.length ? "次へ →" : "採点へ";
+    updateMockStatus();
+    window.scrollTo(0, 0);
+  }
+
+  function updateMockStatus() {
+    const answered = session.answers.filter(a => a.choice !== null).length;
+    $("#mock-status").textContent = `解答済み ${answered} / ${session.list.length}（未解答は不正解扱い）`;
+  }
+
+  /** 現在の問題の滞在時間を積み上げる（前後移動・終了時に呼ぶ） */
+  function accumulateMockTime() {
+    const a = session.answers[session.index];
+    a.time_sec += Math.round((Date.now() - session.qStart) / 1000);
+    session.qStart = Date.now();
+  }
+
+  $("#btn-mock-prev").addEventListener("click", () => {
+    if (!session || session.kind !== "mock" || session.index === 0) return;
+    accumulateMockTime();
+    session.index--;
+    renderMockQuestion();
+  });
+
+  $("#btn-mock-next").addEventListener("click", () => {
+    if (!session || session.kind !== "mock") return;
+    accumulateMockTime();
+    if (session.index + 1 < session.list.length) { session.index++; renderMockQuestion(); return; }
+    confirmFinishMock();
+  });
+
+  $("#btn-mock-finish").addEventListener("click", () => {
+    if (!session || session.kind !== "mock") return;
+    accumulateMockTime();
+    confirmFinishMock();
+  });
+
+  function confirmFinishMock() {
+    const left = session.answers.filter(a => a.choice === null).length;
+    const msg = left ? `未解答が ${left} 問あります（不正解扱い）。採点して終了しますか？` : "採点して終了しますか？";
+    if (confirm(msg)) finishMock(false);
+  }
+
+  async function finishMock(timeUp) {
+    if (!session || session.kind !== "mock" || session.finishing) return;
+    session.finishing = true;
+    stopTimer();
+    if (!timeUp) accumulateMockTime(); // 時間切れは直前のtickで経過が確定しているためそのまま
+    else accumulateMockTime();
+    const s = session;
+    const result = Logic.gradeMock(s.list, s.answers, s.sessionId, Date.now());
+    await DB.addAttempts(result.attempts);
+    session = null;
+    showMockSummary(s, result, timeUp);
+  }
+
+  function showMockSummary(s, result, timeUp) {
+    const box = $("#summary-content");
+    box.innerHTML = "";
+    $("#summary-title").textContent = `模試結果（${s.preset.label}）`;
+    const score = el("div", "summary-score", `${result.correct} / ${result.total}（${result.rate}%）`);
+    score.classList.add(result.rate >= 75 ? "pass" : result.rate >= 70 ? "border" : "fail");
+    box.appendChild(score);
+    const verdict = result.rate >= 75 ? "合格ライン（70〜75%）を上回っています" :
+      result.rate >= 70 ? "合格ラインの境目です" : "合格ライン（70〜75%）に未達";
+    const note = el("p", "muted", `${verdict}${timeUp ? "／時間切れで自動採点" : ""}`);
+    note.style.textAlign = "center";
+    box.appendChild(note);
+
+    const chips = el("div", "stats-bar");
+    const chip = html => { const d = el("div", "stat-chip"); d.innerHTML = html; chips.appendChild(d); };
+    chip(`所要 <b>${fmtTime(result.timeSec)}</b> / ${s.preset.minutes}:00`);
+    chip(`1問平均 <b>${result.total ? Math.round(result.timeSec / result.total) : 0}秒</b>（予算${s.preset.secPerQ}秒）`);
+    chip(`未解答 <b>${result.skipped}</b> 問`);
+    box.appendChild(chips);
+
+    const sum = Logic.summarize(result.attempts, questionsById);
+    const card = el("div", "card");
+    card.appendChild(el("h2", null, "分野別"));
+    card.appendChild(categoryTable(sum.byCat));
+    box.appendChild(card);
+
+    // 見直し: 不正解・未解答を解説付きで一覧
+    const wrong = s.list.map((q, i) => ({ q, a: result.attempts[i] })).filter(x => !x.a.correct);
+    const rv = el("div", "card");
+    rv.appendChild(el("h2", null, `見直し（不正解・未解答 ${wrong.length} 問）`));
+    if (wrong.length === 0) rv.appendChild(el("p", "muted", "全問正解です。"));
+    for (const { q, a } of wrong) {
+      const d = el("details", "review-item");
+      const sm = el("summary");
+      sm.appendChild(el("span", "review-tag", a.skipped ? "未解答" : "✕"));
+      sm.appendChild(document.createTextNode(`${q.category}${q.subcategory ? " › " + q.subcategory : ""}：${q.body.slice(0, 60)}${q.body.length > 60 ? "…" : ""}`));
+      d.appendChild(sm);
+      d.appendChild(el("div", "question-body review-body", q.body));
+      const ch = el("ol", "review-choices");
+      q.choices.forEach((c, i) => {
+        const li = el("li", null, c);
+        if (i === q.answer) li.classList.add("correct");
+        else if (i === a.choice) li.classList.add("wrong");
+        ch.appendChild(li);
+      });
+      d.appendChild(ch);
+      const exp = el("div", "explanation");
+      fillExplanation(exp, q, a.choice, false);
+      d.appendChild(exp);
+      rv.appendChild(d);
+    }
+    box.appendChild(rv);
+    show("summary");
+  }
+
+  // ---- 弱点ダッシュボード ----
+  async function renderDashboard() {
+    questions = await DB.getAllQuestions();
+    questionsById = new Map(questions.map(q => [q.id, q]));
+    attemptsCache = await DB.getAllAttempts();
+    const attempts = attemptsCache;
+    const box = $("#dash-content");
+    box.innerHTML = "";
+    const usable = questions.filter(q => !q.has_figure);
+    if (usable.length === 0) { box.appendChild(el("p", "muted", "問題データがありません。")); return; }
+
+    const perQ = Logic.perQuestionStats(attempts);
+    const st = Logic.overallStats(attempts);
+    const series = Logic.mockSeries(attempts);
+    const due = Logic.srsDueQuestions(questions, attempts);
+    const budget = Logic.mockSecPerQuestion();
+
+    // 概況チップ
+    const chips = el("div", "stats-bar");
+    const chip = html => { const d = el("div", "stat-chip"); d.innerHTML = html; chips.appendChild(d); };
+    chip(`消化率 <b>${Math.round(perQ.size / usable.length * 100)}%</b>（${perQ.size}/${usable.length}問）`);
+    chip(`累計正答率 <b>${st.rate}%</b>（${st.total}解答）`);
+    chip(`模試 <b>${series.length}</b> 回`);
+    chip(`本日の復習 <b>${due.length}</b> 問`);
+    box.appendChild(chips);
+
+    // 1. 自信度×正誤マトリクス
+    const m = Logic.confidenceMatrix(questions, attempts);
+    const c1 = el("div", "card");
+    c1.appendChild(el("h2", null, "自信度 × 正誤（問題ごとの最新解答）"));
+    const grid = el("div", "matrix");
+    const cell = (cls, label, ids, hint, startable) => {
+      const d = el("div", "matrix-cell " + cls);
+      d.appendChild(el("div", "matrix-label", label));
+      d.appendChild(el("div", "matrix-num", `${ids.length}問`));
+      d.appendChild(el("div", "matrix-hint", hint));
+      if (startable && ids.length) {
+        const b = el("button", "mini-btn", "この問題を演習");
+        b.addEventListener("click", () => startPractice(Logic.shuffle(ids.map(id => questionsById.get(id)).filter(Boolean))));
+        d.appendChild(b);
+      }
+      grid.appendChild(d);
+    };
+    cell("mx-sure-ok", "確信 ◯", m.sureCorrect, "習得済み", false);
+    cell("mx-guess-ok", "勘・迷い ◯", m.guessCorrect, "実質未習得", true);
+    cell("mx-sure-ng", "確信 ✕", m.sureWrong, "誤知識の定着＝最優先", true);
+    cell("mx-guess-ng", "勘・迷い ✕", m.guessWrong, "未習得", true);
+    c1.appendChild(grid);
+    const noConf = m.noConfCorrect.length + m.noConfWrong.length;
+    if (noConf) c1.appendChild(el("p", "muted", `模試のみで解答（自信度なし）: ${noConf}問（うち不正解 ${m.noConfWrong.length}問）`));
+    box.appendChild(c1);
+
+    // 2. 正答率推移（模試）＋日別
+    const c2 = el("div", "card");
+    c2.appendChild(el("h2", null, "正答率推移と合格ラインとの距離"));
+    if (series.length === 0) c2.appendChild(el("p", "muted", "模試の記録がありません。ホームの「模試」から実施すると推移が表示されます。"));
+    else {
+      c2.appendChild(el("p", "mode-info-head", "模試（破線 = 合格ライン 70〜75%）"));
+      c2.appendChild(barChart(series.map(s => ({
+        label: new Date(s.timestamp).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }),
+        value: s.rate, sub: `${s.correct}/${s.total}`,
+      }))));
+    }
+    const daily = Logic.dailyAccuracy(attempts, 14);
+    if (daily.length) {
+      c2.appendChild(el("p", "mode-info-head", "日別正答率（直近14日・演習＋模試）"));
+      c2.appendChild(barChart(daily.map(d => ({ label: d.date.slice(5).replace("-", "/"), value: d.rate, sub: `${d.total}問` }))));
+    }
+    box.appendChild(c2);
+
+    // 3. 分野×小分類ヒートマップ
+    const rows = Logic.heatmapRows(questions, attempts);
+    const c3 = el("div", "card");
+    c3.appendChild(el("h2", null, "分野 × 小分類 ヒートマップ（優先度順）"));
+    c3.appendChild(el("p", "muted", "色＝最新解答の正答率（赤50%未満→緑85%以上、灰＝未着手）。優先度＝(1−最新正答率)×(1+確信誤答率)×出題配分重み。"));
+    const ht = el("table", "summary-table heatmap");
+    ht.innerHTML = "<tr><th>分野 › 小分類</th><th>消化</th><th>最新</th><th>累計</th><th>確信✕</th><th>秒</th><th></th></tr>";
+    for (const r of rows) {
+      const tr = el("tr");
+      tr.appendChild(el("td", "heat-name", `${r.category} › ${r.subcategory || "―"}`));
+      tr.appendChild(el("td", null, `${r.attempted}/${r.total}`));
+      const tdL = el("td", `heat heat-${Logic.heatLevel(r.latestAccuracy)}`, r.latestAccuracy === null ? "―" : `${r.latestAccuracy}%`);
+      tr.appendChild(tdL);
+      tr.appendChild(el("td", `heat heat-${Logic.heatLevel(r.accuracy)}`, r.accuracy === null ? "―" : `${r.accuracy}%`));
+      tr.appendChild(el("td", null, r.sureWrong ? String(r.sureWrong) : "―"));
+      tr.appendChild(el("td", null, r.avgTime === null ? "―" : String(r.avgTime)));
+      const tdB = el("td");
+      const b = el("button", "mini-btn", "演習");
+      b.addEventListener("click", () => {
+        const list = Logic.buildWeakSet(questions.filter(q => q.category === r.category && (q.subcategory || "") === r.subcategory), attempts, 0);
+        if (list.length) startPractice(list);
+      });
+      tdB.appendChild(b);
+      tr.appendChild(tdB);
+      ht.appendChild(tr);
+    }
+    c3.appendChild(ht);
+    box.appendChild(c3);
+
+    // 4. 解答時間分布
+    const td = Logic.timeDistribution(questions, attempts, budget);
+    const c4 = el("div", "card");
+    c4.appendChild(el("h2", null, `解答時間分布（予算 ${budget}秒/問）`));
+    if (td.length === 0) c4.appendChild(el("p", "muted", "履歴がありません。"));
+    else {
+      c4.appendChild(el("p", "muted", "超過率＝予算超過した解答の割合。「正解でも超過」が高い分野は知識はあるが時間がかかる＝CBT時間管理の要注意分野。"));
+      const tt = el("table", "summary-table");
+      tt.innerHTML = "<tr><th>分野</th><th>平均</th><th>超過率</th><th>正解でも超過</th></tr>";
+      for (const c of td) {
+        const tr = el("tr");
+        [c.category, `${c.avgTime}秒`, `${c.overRate}%`, `${c.correctOverRate}%`].forEach((t, i) => {
+          const cellEl = el("td", null, t);
+          if (i === 2 && c.overRate >= 50) cellEl.classList.add("ng-text");
+          if (i === 3 && c.correctOverRate >= 50) cellEl.classList.add("ng-text");
+          tr.appendChild(cellEl);
+        });
+        tt.appendChild(tr);
+      }
+      c4.appendChild(tt);
+    }
+    box.appendChild(c4);
+
+    // 5. SRS キュー
+    const c5 = el("div", "card");
+    c5.appendChild(el("h2", null, "SRS 復習キュー"));
+    const DAY = 86400000;
+    const states = Logic.srsStates(attempts);
+    const tomorrow = [...states.values()].filter(s => s.nextDue > Date.now() && s.nextDue <= Date.now() + DAY).length;
+    c5.appendChild(el("p", "mode-info-row", `本日 ${due.length} 問／明日までに +${tomorrow} 問`));
+    if (due.length) {
+      const b = el("button", "primary-btn", `今日の復習を開始（${due.length}問）`);
+      b.addEventListener("click", () => startPractice(due));
+      c5.appendChild(b);
+    }
+    box.appendChild(c5);
+  }
+
+  /** CSSのみの棒グラフ（0〜100%）。70/75% に合格ラインの破線を引く */
+  function barChart(items) {
+    const wrap = el("div", "bars");
+    const line70 = el("div", "bars-line"); line70.style.bottom = "70%"; wrap.appendChild(line70);
+    const line75 = el("div", "bars-line"); line75.style.bottom = "75%"; wrap.appendChild(line75);
+    for (const it of items.slice(-20)) {
+      const col = el("div", "bar-col");
+      const bar = el("div", "bar " + (it.value >= 75 ? "ok" : it.value >= 70 ? "mid" : "ng"));
+      bar.style.height = `${Math.max(2, it.value)}%`;
+      bar.title = `${it.value}%（${it.sub}）`;
+      col.appendChild(el("div", "bar-val", `${it.value}`));
+      col.appendChild(bar);
+      col.appendChild(el("div", "bar-label", it.label));
+      wrap.appendChild(col);
+    }
+    return wrap;
   }
 
   // ---- データ管理 ----
