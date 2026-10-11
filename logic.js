@@ -88,8 +88,16 @@ const Logic = {
     if (onlyWrong || onlyUnsure) {
       if (questionStats) pool.sort((a, b) => questionStats.get(b.id).wrongCount - questionStats.get(a.id).wrongCount);
     } else if (questionStats) {
-      // 絞り込みなしの通常出題では、出題回数が少ない問題（未出題含む）を優先し偏りを防ぐ
-      pool.sort((a, b) => (questionStats.get(a.id)?.times || 0) - (questionStats.get(b.id)?.times || 0));
+      // 絞り込みなしの通常出題の優先順（RF指示 2026-10-11）: 未消化 → 直近不正解 → 自信なし（迷い・勘）で正解 → その他。
+      // 同順位では出題回数が少ない問題を優先（偏り防止）。紙演習・模試の記録も attempts として反映済みの前提
+      const rank = q => {
+        const s = questionStats.get(q.id);
+        if (!s) return 0;
+        if (s.lastCorrect === false) return 1;
+        if (s.lastConfidence === "unsure" || s.lastConfidence === "guess") return 2;
+        return 3;
+      };
+      pool.sort((a, b) => rank(a) - rank(b) || (questionStats.get(a.id)?.times || 0) - (questionStats.get(b.id)?.times || 0));
     }
     return count > 0 ? pool.slice(0, count) : pool;
   },
