@@ -18,6 +18,7 @@
 <section id="screen-home" class="screen active">
   <header class="app-header">
     <h1>IC試験対策</h1>
+    <button class="icon-btn" data-nav="dashboard" title="ダッシュボード">📊</button>
     <button class="icon-btn" data-nav="data" title="データ管理">⚙</button>
   </header>
 
@@ -26,6 +27,7 @@
   <div class="card">
     <h2>分野別 得意・不得意</h2>
     <div id="category-stats"></div>
+    <button class="secondary-btn" data-nav="dashboard">弱点ダッシュボードを開く</button>
   </div>
 
   <div class="card">
@@ -33,6 +35,9 @@
     <div class="mode-tabs">
       <button class="mode-tab active" data-mode="random">全分野ランダム</button>
       <button class="mode-tab" data-mode="category">分野指定</button>
+      <button class="mode-tab" data-mode="weak">弱点集中</button>
+      <button class="mode-tab" data-mode="srs">SRS復習</button>
+      <button class="mode-tab mode-tab-mock" data-mode="mock">模試</button>
     </div>
 
     <div id="category-selectors" class="hidden">
@@ -44,21 +49,33 @@
       </label>
     </div>
 
-    <div class="filter-row">
+    <div id="weak-info" class="mode-info hidden"></div>
+    <div id="srs-info" class="mode-info hidden"></div>
+
+    <div id="mock-settings" class="hidden">
+      <label>模試の規模
+        <select id="sel-mock-preset"></select>
+      </label>
+      <p class="muted">CBT本番＝36問・120分。本アプリは1大問を空欄ごとに分けているため「本番相当」＝144問・120分（1問50秒）。分野構成は収録比で層化。解説は終了後にまとめて表示し、途中で正誤は出ません。未解答は不正解として採点します。</p>
+    </div>
+
+    <div id="filter-row" class="filter-row">
       <label class="checkbox-label"><input type="checkbox" id="filter-wrong"> 直近不正解のみ</label>
       <label class="checkbox-label"><input type="checkbox" id="filter-unsure"> 自信なし（迷い・勘）のみ</label>
       <p id="filter-count" class="muted"></p>
     </div>
 
-    <label>出題数
-      <select id="sel-count">
-        <option value="10" selected>10問</option>
-        <option value="20">20問</option>
-        <option value="30">30問</option>
-        <option value="0">全問</option>
-      </select>
-    </label>
-    <p class="muted">※ 出題回数が少ない問題を優先し、まんべんなく出題します</p>
+    <div id="count-row">
+      <label>出題数
+        <select id="sel-count">
+          <option value="10" selected>10問</option>
+          <option value="20">20問</option>
+          <option value="30">30問</option>
+          <option value="0">全問</option>
+        </select>
+      </label>
+      <p id="count-note" class="muted">※ 出題回数が少ない問題を優先し、まんべんなく出題します</p>
+    </div>
 
     <button id="btn-start" class="primary-btn">開始</button>
     <p id="home-message" class="muted"></p>
@@ -94,13 +111,32 @@
     <div id="result-explanation" class="explanation"></div>
     <button id="btn-next" class="primary-btn">次の問題</button>
   </div>
+
+  <!-- 模試ナビ（正誤は出さず前後移動のみ） -->
+  <div id="mock-nav" class="hidden">
+    <p id="mock-status" class="muted"></p>
+    <div class="mock-nav-btns">
+      <button id="btn-mock-prev" class="secondary-btn">← 前へ</button>
+      <button id="btn-mock-next" class="primary-btn">次へ →</button>
+    </div>
+    <button id="btn-mock-finish" class="secondary-btn">採点して終了</button>
+  </div>
 </section>
 
 <!-- セッション結果 -->
 <section id="screen-summary" class="screen">
-  <header class="app-header"><h1>結果</h1></header>
+  <header class="app-header"><h1 id="summary-title">結果</h1></header>
   <div id="summary-content"></div>
   <button class="primary-btn" data-nav="home">ホームへ戻る</button>
+</section>
+
+<!-- 弱点ダッシュボード -->
+<section id="screen-dashboard" class="screen">
+  <header class="app-header">
+    <button class="icon-btn" data-nav="home">←</button>
+    <h1>弱点ダッシュボード</h1>
+  </header>
+  <div id="dash-content"></div>
 </section>
 
 <!-- データ管理 -->
@@ -112,7 +148,7 @@
 
   <div class="card">
     <h2>問題データ import</h2>
-    <p class="muted">問題JSON（配列 または {questions:[...]}）を追加・上書き（id単位）</p>
+    <p class="muted">問題JSON（配列 または {questions:[...]}）を追加・上書き（id単位）。解答履歴は保持されます</p>
     <input type="file" id="file-import" accept=".json,application/json">
     <p id="import-result" class="muted"></p>
   </div>
