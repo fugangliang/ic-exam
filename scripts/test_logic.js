@@ -135,7 +135,7 @@ const freqStats = Logic.perQuestionStats([
   // id "3" は未出題（questionStatsに存在しない） → times=0扱いで最優先
 ]);
 const balanced = Logic.buildQuizSet(pool, { mode: "random", count: 2, questionStats: freqStats }, rng);
-assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["2", "3"]); // 未消化"3"が最優先、次に出題回数の少ない"2"（画像なし図版4は除外）
+assert.ok(balanced.some(q => q.id === "3")); // 未消化"3"が必ず入る（残り1問は正解の中からランダム）
 
 // status / buildQuizSet: 状態は1つに決める（アプリ > 模試 > 紙）。優先順 = 不正解 → 未消化 → 自信なし → 正解
 const stPool = [
@@ -160,6 +160,13 @@ assert.deepStrictEqual(ordered, ["wrong", "wrong", "wrong", "wrong", "new", "uns
 // 模試で正解した問題は、未消化・不正解・自信なしが残っている限り出ない
 const top4 = Logic.buildQuizSet(stPool, { mode: "random", count: 4, questionStats: stStats }, rng);
 assert.ok(!top4.some(x => x.id === "s-mock-ok"));
+// 同じ「不正解」の中では、アプリで解いた不正解と模試・紙の不正解を区別しない（出題回数で並べない）
+let firstApp = 0;
+for (let t = 0; t < 40; t++) {
+  const top = Logic.buildQuizSet(stPool, { mode: "random", count: 1, questionStats: stStats }, Math.random)[0];
+  if (top.id === "s-app-wrong" || top.id === "s-paper-ok-then-app-wrong") firstApp++;
+}
+assert.ok(firstApp >= 8 && firstApp <= 32, "アプリ不正解が先頭に来る回数が偏っている: " + firstApp); // 期待値 20/40
 // categoryStats / trendSummary の消化数に模試・紙の結果を含める
 const cs2 = Logic.categoryStats(stPool, [{ question_id: "s-app-sure", correct: true, timestamp: 1, confidence: "sure" }]);
 assert.strictEqual(cs2[0].attemptedQuestions, 5); // app1 + mock2 + paper2
