@@ -119,10 +119,10 @@ const qStats = Logic.perQuestionStats([
 const wrongSet = Logic.buildQuizSet(pool, { mode: "random", count: 0, onlyWrong: true, questionStats: qStats }, rng);
 assert.strictEqual(wrongSet.length, 1);
 assert.strictEqual(wrongSet[0].id, "1");
-// onlyUnsure は「迷い」「勘」の両方を対象とする（id1=勘で不正解、id3=迷いで正解、の2件がヒット）
+// onlyUnsure は「迷い・勘で正解」のみ（id3）。勘で不正解の id1 は「直近不正解」側に入る（状態は1つに決める・2026-10-11）
 const unsureSet = Logic.buildQuizSet(pool, { mode: "random", count: 0, onlyUnsure: true, questionStats: qStats }, rng);
-assert.strictEqual(unsureSet.length, 2);
-assert.deepStrictEqual(unsureSet.map(q => q.id).sort(), ["1", "3"]);
+assert.strictEqual(unsureSet.length, 1);
+assert.deepStrictEqual(unsureSet.map(q => q.id), ["3"]);
 const noneSet = Logic.buildQuizSet(pool, { mode: "random", count: 0, onlyWrong: true, onlyUnsure: true, questionStats: new Map() }, rng);
 assert.strictEqual(noneSet.length, 0); // 統計が空なら全問未解答扱いで対象外
 
@@ -137,31 +137,34 @@ const freqStats = Logic.perQuestionStats([
 const balanced = Logic.buildQuizSet(pool, { mode: "random", count: 2, questionStats: freqStats }, rng);
 assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["2", "3"]); // 未消化"3"が最優先、次に出題回数の少ない"2"（画像なし図版4は除外）
 
-// buildQuizSet: 通常出題の優先順 = 未消化 → 直近不正解 → 自信なし正解 → 確信正解
-const prPool = [q("r1", "A", "s"), q("r2", "A", "s"), q("r3", "A", "s"), q("r4", "A", "s")];
-const prStats = Logic.perQuestionStats([
-  { question_id: "r1", correct: true, timestamp: 1, confidence: "sure" },
-  { question_id: "r2", correct: false, timestamp: 1, confidence: "sure" },
-  { question_id: "r3", correct: true, timestamp: 1, confidence: "guess" },
-  // r4 は未消化
+// status / buildQuizSet: 状態は1つに決める（アプリ > 模試 > 紙）。優先順 = 不正解 → 未消化 → 自信なし → 正解
+const stPool = [
+  q("s-app-wrong", "A", "s"), q("s-app-unsure", "A", "s"), q("s-app-sure", "A", "s"), q("s-new", "A", "s"),
+  q("s-mock-wrong", "A", "s", { prior: [{ source: "mock", correct: false }] }),
+  q("s-mock-ok", "A", "s", { prior: [{ source: "mock", correct: true }] }),
+  q("s-paper-wrong", "A", "s", { paper_results: ["○", "×"] }),
+  q("s-paper-ok-then-app-wrong", "A", "s", { paper_results: ["○", "○"] }),
+];
+const stStats = Logic.perQuestionStats([
+  { question_id: "s-app-wrong", correct: false, timestamp: 1, confidence: "sure" },
+  { question_id: "s-app-unsure", correct: true, timestamp: 1, confidence: "guess" },
+  { question_id: "s-app-sure", correct: true, timestamp: 1, confidence: "sure" },
+  { question_id: "s-paper-ok-then-app-wrong", correct: false, timestamp: 1, confidence: "unsure" },
 ]);
-assert.deepStrictEqual(Logic.buildQuizSet(prPool, { mode: "random", count: 0, questionStats: prStats }, rng).map(q => q.id), ["r4", "r2", "r3", "r1"]);
-// 件数指定時は 未消化5:不正解3:自信なし2 の配分で混ぜる（不足は繰り上げ、最後は確信正解で補充）
-const mixPool = [];
-for (let i = 0; i < 10; i++) mixPool.push(q(`n${i}`, "A", "s"));                       // 未消化10
-for (let i = 0; i < 10; i++) mixPool.push(q(`w${i}`, "A", "s"));                       // 不正解10
-for (let i = 0; i < 1; i++) mixPool.push(q(`u${i}`, "A", "s"));                        // 自信なし1
-for (let i = 0; i < 10; i++) mixPool.push(q(`c${i}`, "A", "s"));                       // 確信正解10
-const mixAtt = [];
-for (let i = 0; i < 10; i++) mixAtt.push({ question_id: `w${i}`, correct: false, timestamp: 1, confidence: "sure" });
-mixAtt.push({ question_id: "u0", correct: true, timestamp: 1, confidence: "guess" });
-for (let i = 0; i < 10; i++) mixAtt.push({ question_id: `c${i}`, correct: true, timestamp: 1, confidence: "sure" });
-const mix = Logic.buildQuizSet(mixPool, { mode: "random", count: 10, questionStats: Logic.perQuestionStats(mixAtt) }, rng);
-const kind = p => mix.filter(x => x.id.startsWith(p)).length;
-assert.strictEqual(mix.length, 10);
-assert.deepStrictEqual([kind("n"), kind("w"), kind("u"), kind("c")], [5, 4, 1, 0]); // 自信なしの不足1件は不正解で補充（確信正解は最後）
-
-
+const stOf = id => Logic.status(stPool.find(x => x.id === id), stStats);
+assert.strictEqual(stOf("s-app-wrong"), "wrong"); assert.strictEqual(stOf("s-app-unsure"), "unsure"); assert.strictEqual(stOf("s-app-sure"), "correct");
+assert.strictEqual(stOf("s-new"), "new"); assert.strictEqual(stOf("s-mock-wrong"), "wrong"); assert.strictEqual(stOf("s-mock-ok"), "correct");
+assert.strictEqual(stOf("s-paper-wrong"), "wrong"); assert.strictEqual(stOf("s-paper-ok-then-app-wrong"), "wrong"); // アプリの結果が紙より優先
+const ordered = Logic.buildQuizSet(stPool, { mode: "random", count: 0, questionStats: stStats }, rng).map(x => Logic.status(stPool.find(p => p.id === x.id), stStats));
+assert.deepStrictEqual(ordered, ["wrong", "wrong", "wrong", "wrong", "new", "unsure", "correct", "correct"]);
+// 模試で正解した問題は、未消化・不正解・自信なしが残っている限り出ない
+const top4 = Logic.buildQuizSet(stPool, { mode: "random", count: 4, questionStats: stStats }, rng);
+assert.ok(!top4.some(x => x.id === "s-mock-ok"));
+// categoryStats / trendSummary の消化数に模試・紙の結果を含める
+const cs2 = Logic.categoryStats(stPool, [{ question_id: "s-app-sure", correct: true, timestamp: 1, confidence: "sure" }]);
+assert.strictEqual(cs2[0].attemptedQuestions, 5); // app1 + mock2 + paper2
+assert.strictEqual(cs2[0].wrongNow, 2);           // mock-wrong, paper-wrong
+assert.strictEqual(Logic.trendSummary(stPool, [], Date.now()).attempted, 4); // mock2 + paper2（アプリ履歴なし）
 
 // explanationHighlightKey: 括弧書き（読み仮名等）を除いた本体を返す
 assert.strictEqual(Logic.explanationHighlightKey("卓袱台（ちゃぶだい）"), "卓袱台");
