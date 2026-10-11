@@ -1,7 +1,7 @@
 /* Service Worker: アプリシェルをプリキャッシュし完全オフライン起動を保証する。
    デプロイ時は VERSION を上げること（古いキャッシュは activate で破棄）。 */
 
-const VERSION = "v9";
+const VERSION = "v10";
 const CACHE = `ic-exam-${VERSION}`;
 const SHELL = [
   "./",

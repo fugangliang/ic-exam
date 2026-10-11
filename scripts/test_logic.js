@@ -42,9 +42,9 @@ const pool = [
   q("3", "歴史", "様式"), q("4", "法規", "建基法", { has_figure: true }),
 ];
 const rng = () => 0.5;
-assert.strictEqual(Logic.buildQuizSet(pool, { mode: "random", count: 0 }, rng).length, 4); // 図版問題も出題対象（2026-10-11 RF決定）
-assert.strictEqual(Logic.buildQuizSet(pool, { mode: "category", category: "法規", subcategory: "", count: 0 }, rng).length, 3);
-assert.strictEqual(Logic.buildQuizSet(pool, { mode: "category", category: "法規", subcategory: "建基法", count: 0 }, rng).length, 2);
+assert.strictEqual(Logic.buildQuizSet(pool, { mode: "random", count: 0 }, rng).length, 3); // 画像なしの図版問題は除外
+assert.strictEqual(Logic.buildQuizSet(pool, { mode: "category", category: "法規", subcategory: "", count: 0 }, rng).length, 2);
+assert.strictEqual(Logic.buildQuizSet(pool, { mode: "category", category: "法規", subcategory: "建基法", count: 0 }, rng).length, 1);
 assert.strictEqual(Logic.buildQuizSet(pool, { mode: "random", count: 2 }, rng).length, 2);
 
 // shuffle: 元配列を破壊しない・要素保存
@@ -135,7 +135,7 @@ const freqStats = Logic.perQuestionStats([
   // id "3" は未出題（questionStatsに存在しない） → times=0扱いで最優先
 ]);
 const balanced = Logic.buildQuizSet(pool, { mode: "random", count: 2, questionStats: freqStats }, rng);
-assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["3", "4"]); // 未出題の2問（図版問題4を含む）が、出題済みの"1""2"より優先される
+assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["2", "3"]); // 出題0〜1回の2問が、3回出題済みの"1"より優先される（画像なし図版4は除外）
 
 // explanationHighlightKey: 括弧書き（読み仮名等）を除いた本体を返す
 assert.strictEqual(Logic.explanationHighlightKey("卓袱台（ちゃぶだい）"), "卓袱台");
@@ -187,8 +187,8 @@ assert.strictEqual(mock.length, 20);
 assert.strictEqual(new Set(mock.map(x => x.id)).size, 20);
 const cnt = cat => mock.filter(x => x.category === cat).length;
 assert.deepStrictEqual([cnt("計画"), cnt("法規"), cnt("歴史")], [12, 6, 2]); // 図版1問を含む101問から比例配分（61/30/10→12.1/5.9/2.0）
-assert.strictEqual(Logic.buildMockSet(bank, 0, null, rng).length, 101);   // 0=全問（図版含む）
-assert.strictEqual(Logic.buildMockSet(bank, 999, null, rng).length, 101); // 超過は全問
+assert.strictEqual(Logic.buildMockSet(bank, 0, null, rng).length, 100);   // 0=全問（画像なし図版は除外）
+assert.strictEqual(Logic.buildMockSet(bank, 999, null, rng).length, 100); // 超過は全問
 // 端数配分: 7問を 60/30/10 で割ると 4.2/2.1/0.7 → 4/2/0 + 余り1は端数最大の歴史へ
 const mock7 = Logic.buildMockSet(bank, 7, null, rng);
 assert.deepStrictEqual([mock7.filter(x => x.category === "計画").length, mock7.filter(x => x.category === "法規").length, mock7.filter(x => x.category === "歴史").length], [4, 2, 1]);
@@ -249,8 +249,8 @@ const srsAtt = [
   { question_id: "s2", timestamp: t0 - 3 * DAY, correct: false, confidence: "guess" }, // due t0-2日（より超過）
   { question_id: "s5", timestamp: t0 - 3 * DAY, correct: false, confidence: "guess" },
 ];
-assert.deepStrictEqual(Logic.srsDueQuestions(srsPool, srsAtt, t0 + 2 * DAY).map(x => x.id), ["s2", "s5", "s1"]); // 図版問題 s5 も対象
-assert.deepStrictEqual(Logic.srsDueQuestions(srsPool, srsAtt, t0).map(x => x.id), ["s2", "s5"]);
+assert.deepStrictEqual(Logic.srsDueQuestions(srsPool, srsAtt, t0 + 2 * DAY).map(x => x.id), ["s2", "s1"]); // 画像なし図版 s5 は除外
+assert.deepStrictEqual(Logic.srsDueQuestions(srsPool, srsAtt, t0).map(x => x.id), ["s2"]);
 
 // latestAttempts / confidenceMatrix: 最新解答で4象限（＋自信度なし）に分類
 const cmPool = [q("c1", "A", "x"), q("c2", "A", "x"), q("c3", "A", "x"), q("c4", "A", "x"), q("c5", "A", "x"), q("c6", "A", "x")];
@@ -298,7 +298,8 @@ const weak = Logic.buildWeakSet(hmPool, hmAtt, 0, rng);
 assert.strictEqual(weak[0].id, "h1");           // 確信誤答＋優先小分類
 assert.strictEqual(weak[weak.length - 1].id, "h4"); // 確信正解・優先度0
 assert.strictEqual(Logic.buildWeakSet(hmPool, hmAtt, 2, rng).length, 2);
-assert.strictEqual(Logic.buildWeakSet([...hmPool, q("hf", "計画", "動線", { has_figure: true })], hmAtt, 0, rng).length, 5); // 図版問題も含む
+assert.strictEqual(Logic.buildWeakSet([...hmPool, q("hf", "計画", "動線", { has_figure: true })], hmAtt, 0, rng).length, 4); // 画像なし図版は除外
+assert.strictEqual(Logic.buildWeakSet([...hmPool, q("hf2", "計画", "動線", { has_figure: true, figure_data: "data:image/png;base64,AAAA" })], hmAtt, 0, rng).length, 5); // 画像ありの図版は含む
 
 // timeDistribution: 予算超過率・正解でも超過した割合
 const td = Logic.timeDistribution(hmPool, [
@@ -336,7 +337,7 @@ assert.strictEqual(Logic.paperMark({}), null);
 // paperStats: 分野別の紙演習集計（図版除外）
 const ppool = [q("p1", "A", "s", { paper_results: ["×", "×"] }), q("p2", "A", "s", { paper_results: ["○"] }), q("p3", "B", "s"), q("p4", "A", "s", { paper_results: ["×"], has_figure: true })];
 const ps = Logic.paperStats(ppool);
-assert.deepStrictEqual(ps.get("A"), { marked: 3, latestX: 2, xx: 1 }); // 図版問題 p4 も集計対象
+assert.deepStrictEqual(ps.get("A"), { marked: 2, latestX: 1, xx: 1 }); // 画像なし図版 p4 は除外
 assert.strictEqual(ps.get("B"), undefined);
 
 // buildWeakSet: アプリ未解答なら紙の×を優先シグナルに使う（×× > × > 未記録 > ○）

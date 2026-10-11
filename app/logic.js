@@ -2,9 +2,9 @@
 
 const Logic = {
 
-  /** 出題対象か。図版問題（has_figure）も出題対象に含める（RF決定 2026-10-11）。
-      図データ（figure_data）が無い図版問題は本文＋「図は原本参照」注記で出題される */
-  usable(q) { return !!q && !q._disabled; },
+  /** 出題対象か。図版問題（has_figure）は図データ（figure_data）が入っているものだけ出題対象
+      （RF指摘 2026-10-11「図そのものを入れないと意味がない」。画像なしの図版問題は再撮影→埋め込み後に自動で対象になる） */
+  usable(q) { return !!q && (!q.has_figure || typeof q.figure_data === "string" && q.figure_data.startsWith("data:image/")); },
 
   /** 問題1件のスキーマ検証。エラー文字列の配列を返す（空＝妥当） */
   validateQuestion(q) {
