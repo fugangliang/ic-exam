@@ -24,6 +24,11 @@
 
   <div id="home-stats" class="stats-bar"></div>
 
+  <div class="card trend-card">
+    <h2>傾向サマリー <span class="muted trend-sub">現在地・優先分野・次の一手</span></h2>
+    <div id="trend-content"></div>
+  </div>
+
   <div class="card">
     <h2>分野別 得意・不得意</h2>
     <div id="category-stats"></div>
@@ -148,7 +153,7 @@
 
   <div class="card">
     <h2>問題データ import</h2>
-    <p class="muted">問題JSON（配列 または {questions:[...]}）を追加・上書き（id単位）。解答履歴は保持されます</p>
+    <p class="muted">問題JSON（配列 または {questions:[...]}）を追加・上書き（id単位）。解答履歴は保持されます。統合ファイル（questions＋attempts）は下の「バックアップ復元」で読み込む</p>
     <input type="file" id="file-import" accept=".json,application/json">
     <p id="import-result" class="muted"></p>
   </div>

@@ -223,3 +223,12 @@ td.heat { text-align: center; font-weight: 600; border-radius: 4px; }
 .bar.ng { background: var(--red); }
 .bar-val { font-size: .7rem; color: var(--muted); }
 .bar-label { font-size: .65rem; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+
+/* 傾向サマリー */
+.trend-card { border-left: 4px solid var(--navy); }
+.trend-sub { font-weight: 400; font-size: .78rem; margin-left: 6px; }
+.trend-line { display: flex; gap: 8px; margin: 6px 0; font-size: .9rem; line-height: 1.5; }
+.trend-label { flex: 0 0 4.2em; font-weight: 700; color: var(--navy); }
+.trend-text { flex: 1; }
+.ok-text { color: var(--green); font-weight: 600; }
+.trend-btn { margin-top: 10px; }
