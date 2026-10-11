@@ -98,7 +98,7 @@
     const next = [];
     if (t.sureWrong) next.push(`確信誤答${t.sureWrong}問`);
     if (t.due) next.push(`本日のSRS復習${t.due}問`);
-    if (t.guessCorrect) next.push(`勘・迷いで正解${t.guessCorrect}問`);
+    if (t.guessCorrect) next.push(`自信なしで正解${t.guessCorrect}問`);
     line("次の一手", next.length ? next.join("／") + " を優先的に潰す" : "弱点集中モードで優先分野を回す");
     if (pr.length) {
       const b = el("button", "secondary-btn trend-btn", `優先分野「${pr[0].category}」を弱点集中で20問`);
@@ -655,9 +655,9 @@
       grid.appendChild(d);
     };
     cell("mx-sure-ok", "確信 ◯", m.sureCorrect, "習得済み", false);
-    cell("mx-guess-ok", "勘・迷い ◯", m.guessCorrect, "実質未習得", true);
+    cell("mx-guess-ok", "自信なし ◯", m.guessCorrect, "実質未習得", true);
     cell("mx-sure-ng", "確信 ✕", m.sureWrong, "誤知識の定着＝最優先", true);
-    cell("mx-guess-ng", "勘・迷い ✕", m.guessWrong, "未習得", true);
+    cell("mx-guess-ng", "自信なし ✕", m.guessWrong, "未習得", true);
     c1.appendChild(grid);
     const noConf = m.noConfCorrect.length + m.noConfWrong.length;
     if (noConf) c1.appendChild(el("p", "muted", `模試のみで解答（自信度なし）: ${noConf}問（うち不正解 ${m.noConfWrong.length}問）`));
