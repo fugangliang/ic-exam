@@ -1,37 +1,36 @@
 #!/usr/bin/env python3
-"""問題JSONの paper_results（紙で解いた際の手書き ○×。1周目→2周目の順）を、
+"""問題JSONの paper_results（紙で解いた際の手書き ○×。古い周→新しい周の順）を、
 アプリの「バックアップ復元」で取り込める attempts 形式に変換する。
 
 使い方:
-  python3 scripts/paper_results_to_attempts.py data/questions/itto_261011.json 2026-09-20 2026-10-05 > out.json
-    第2引数以降 = 各周回の解答日（周回数ぶん。日付は 12:00 JST とする）
-
-出力: {"questions": [...元の問題...], "attempts": [...]}  ※ restore はこの形式を要求するため問題も同梱する。
-      attempts: {question_id, timestamp, correct, time_sec: 0, confidence: null, mode: "paper", round: n}
-"?" のマークは解答不明として attempts に含めない（推測補完禁止）。
+  python3 scripts/paper_results_to_attempts.py <問題JSON...> --dates 2026-09-15 2026-10-01 > out.json
+  各周回の名目日付（古い順）。マークが日付数より多い問題は最後のN個（直近の周）を採用する。
+出力: {"questions": [], "attempts": [...]}（復元はこの形式を要求。questions は空＝問題は更新しない）
+      attempts: {question_id, timestamp, correct, time_sec: null, confidence: null, mode: "paper", round}
+"?"（判読不能）は含めない。
 """
 import json, sys
 from datetime import datetime, timezone, timedelta
 
 def main(argv):
-    if len(argv) < 2:
+    if "--dates" not in argv:
         print(__doc__); return 1
-    path, dates = argv[0], argv[1:]
-    data = json.load(open(path, encoding="utf-8"))
-    qs = data["questions"] if isinstance(data, dict) else data
+    i = argv.index("--dates"); paths, dates = argv[:i], argv[i+1:]
     jst = timezone(timedelta(hours=9))
     stamps = [int(datetime.strptime(d, "%Y-%m-%d").replace(hour=12, tzinfo=jst).timestamp() * 1000) for d in dates]
     attempts, skipped = [], 0
-    for q in qs:
-        for i, mark in enumerate(q.get("paper_results") or []):
-            if i >= len(stamps):
-                skipped += 1; continue
-            if mark not in ("○", "×"):
-                skipped += 1; continue
-            attempts.append({"question_id": q["id"], "timestamp": stamps[i] + len(attempts),
-                             "correct": mark == "○", "time_sec": 0, "confidence": None, "mode": "paper", "round": i + 1})
-    json.dump({"questions": qs, "attempts": attempts}, sys.stdout, ensure_ascii=False, indent=1)
-    print(f"\n# attempts {len(attempts)} 件 / スキップ {skipped} 件（日付不足・判読不能）", file=sys.stderr)
+    for path in paths:
+        data = json.load(open(path, encoding="utf-8"))
+        for q in (data["questions"] if isinstance(data, dict) else data):
+            marks = [m for m in (q.get("paper_results") or []) if m in ("○", "×")]
+            skipped += len([m for m in (q.get("paper_results") or []) if m not in ("○", "×")])
+            marks = marks[-len(stamps):]  # 直近N周
+            offset = len(stamps) - len(marks)
+            for j, mark in enumerate(marks):
+                attempts.append({"question_id": q["id"], "timestamp": stamps[offset + j] + len(attempts),
+                                 "correct": mark == "○", "time_sec": None, "confidence": None, "mode": "paper", "round": offset + j + 1})
+    json.dump({"questions": [], "attempts": attempts}, sys.stdout, ensure_ascii=False, indent=1)
+    print(f"\n# attempts {len(attempts)} 件 / 判読不能スキップ {skipped} 件", file=sys.stderr)
     return 0
 
 if __name__ == "__main__":

@@ -135,7 +135,17 @@ const freqStats = Logic.perQuestionStats([
   // id "3" は未出題（questionStatsに存在しない） → times=0扱いで最優先
 ]);
 const balanced = Logic.buildQuizSet(pool, { mode: "random", count: 2, questionStats: freqStats }, rng);
-assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["2", "3"]); // 出題0〜1回の2問が、3回出題済みの"1"より優先される（画像なし図版4は除外）
+assert.deepStrictEqual(balanced.map(q => q.id).sort(), ["2", "3"]); // 未消化"3"が最優先、次に出題回数の少ない"2"（画像なし図版4は除外）
+
+// buildQuizSet: 通常出題の優先順 = 未消化 → 直近不正解 → 自信なし正解 → 確信正解
+const prPool = [q("r1", "A", "s"), q("r2", "A", "s"), q("r3", "A", "s"), q("r4", "A", "s")];
+const prStats = Logic.perQuestionStats([
+  { question_id: "r1", correct: true, timestamp: 1, confidence: "sure" },
+  { question_id: "r2", correct: false, timestamp: 1, confidence: "sure" },
+  { question_id: "r3", correct: true, timestamp: 1, confidence: "guess" },
+  // r4 は未消化
+]);
+assert.deepStrictEqual(Logic.buildQuizSet(prPool, { mode: "random", count: 0, questionStats: prStats }, rng).map(q => q.id), ["r4", "r2", "r3", "r1"]);
 
 // explanationHighlightKey: 括弧書き（読み仮名等）を除いた本体を返す
 assert.strictEqual(Logic.explanationHighlightKey("卓袱台（ちゃぶだい）"), "卓袱台");
