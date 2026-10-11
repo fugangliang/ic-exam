@@ -38,7 +38,8 @@
   async function refreshHome() {
     questions = await DB.getAllQuestions();
     questionsById = new Map(questions.map(q => [q.id, q]));
-    attemptsCache = await DB.getAllAttempts();
+    // 収録問題に紐づく履歴だけを統計に使う（問題IDが変わった古い記録などの孤立データを除外。DBは触らない）
+    attemptsCache = (await DB.getAllAttempts()).filter(a => questionsById.has(a.question_id));
     const attempts = attemptsCache;
     const st = Logic.overallStats(attempts);
     const usable = questions.filter(q => Logic.usable(q)).length;
@@ -283,9 +284,9 @@
     session.pendingChoice = null;
     session.answered = false;
     $("#quiz-progress").textContent = `${session.index + 1} / ${session.list.length}`;
-    const pr = (q.paper_results || []).filter(m => m === "○" || m === "×").join("");
+    const prior = (q.prior || []).map(p => (p.source === "mock" ? "模試" : "紙") + (p.correct ? "○" : "×")).join(" ");
     $("#quiz-meta").textContent =
-      `${q.category}${q.subcategory ? " › " + q.subcategory : ""}｜出典: ${q.source || "―"}${pr ? "｜紙: " + pr : ""}`;
+      `${q.category}${q.subcategory ? " › " + q.subcategory : ""}｜出典: ${q.source || "―"}${prior ? "｜記録: " + prior : ""}`;
     renderChoices(q, i => onChoice(i), null);
     $("#confidence-panel").classList.add("hidden");
     $("#result-panel").classList.add("hidden");
@@ -422,6 +423,7 @@
 
   /** タップ3: 次問 or 結果 */
   $("#btn-next").addEventListener("click", () => {
+    if (!session) return;
     session.index++;
     if (session.index < session.list.length) renderQuestion();
     else showSummary();
@@ -609,7 +611,7 @@
   async function renderDashboard() {
     questions = await DB.getAllQuestions();
     questionsById = new Map(questions.map(q => [q.id, q]));
-    attemptsCache = await DB.getAllAttempts();
+    attemptsCache = (await DB.getAllAttempts()).filter(a => questionsById.has(a.question_id));
     const attempts = attemptsCache;
     const box = $("#dash-content");
     box.innerHTML = "";

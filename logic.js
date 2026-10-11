@@ -62,13 +62,10 @@ const Logic = {
   },
 
   /**
-   * 出題セットを構築。mode: "random" | "category"
-   * count 0 は全問。図版問題（has_figure）は P1 では除外。
-   * onlyWrong/onlyUnsure: questionStats（perQuestionStats の返値）を使い、
-   * 直近の解答が不正解／自信度が「迷い」「勘」だった問題のみに絞り込む（未解答は対象外）。
-   * 絞り込み時は該当問題を間違えた回数（wrongCount）が多い順に優先する。
-   * 絞り込みなしの場合は、questionStats があれば出題回数（times）が少ない問題を優先し、
-   * ランダム出題の偏り（同じ問題ばかり出る）を防いでまんべんなく出題する。
+   * 出題セットを構築。mode: "random" | "category"。count 0 は全問。
+   * 各問題の状態（Logic.status: アプリの解答 > 模試 > 紙の順で直近結果を採用）で
+   * 不正解 → 未消化 → 自信なし → 正解 の順に出す（RF指示 2026-10-11）。
+   * onlyWrong/onlyUnsure は状態 "wrong" / "unsure" に絞る。
    */
   buildQuizSet(questions, { mode, category, subcategory, count, onlyWrong, onlyUnsure, questionStats }, rng = Math.random) {
     let pool = questions.filter(q => Logic.usable(q));
@@ -76,41 +73,14 @@ const Logic = {
       pool = pool.filter(q => q.category === category);
       if (subcategory) pool = pool.filter(q => q.subcategory === subcategory);
     }
+    const st = q => this.status(q, questionStats);
     if (onlyWrong || onlyUnsure) {
-      pool = pool.filter(q => {
-        const s = questionStats && questionStats.get(q.id);
-        if (!s) return false;
-        return (onlyWrong && s.lastCorrect === false) ||
-               (onlyUnsure && (s.lastConfidence === "unsure" || s.lastConfidence === "guess"));
-      });
+      pool = pool.filter(q => (onlyWrong && st(q) === "wrong") || (onlyUnsure && st(q) === "unsure"));
     }
     pool = this.shuffle(pool, rng);
-    if (onlyWrong || onlyUnsure) {
-      if (questionStats) pool.sort((a, b) => questionStats.get(b.id).wrongCount - questionStats.get(a.id).wrongCount);
-    } else if (questionStats) {
-      // 絞り込みなしの通常出題（RF指示 2026-10-11）: 1セットに「未消化」「直近不正解」「自信なし（迷い・勘）で正解」を
-      // 5:3:2 で混ぜる。該当が不足する種類の枠は次の種類に繰り上げ、それでも足りなければ「確信正解」で埋める。
-      // 各種類の中では出題回数が少ない問題を優先（偏り防止）。紙演習・模試の記録も attempts として反映済みの前提
-      const tier = q => {
-        const s = questionStats.get(q.id);
-        if (!s) return 0;
-        if (s.lastCorrect === false) return 1;
-        if (s.lastConfidence === "unsure" || s.lastConfidence === "guess") return 2;
-        return 3;
-      };
-      const byTimes = (a, b) => (questionStats.get(a.id)?.times || 0) - (questionStats.get(b.id)?.times || 0);
-      const tiers = [[], [], [], []];
-      for (const q of pool) tiers[tier(q)].push(q);
-      tiers.forEach(t => t.sort(byTimes));
-      if (count <= 0) return tiers.flat();
-      const quota = [Math.round(count * 0.5), Math.round(count * 0.3), 0, 0];
-      quota[2] = count - quota[0] - quota[1];
-      const out = [];
-      for (let i = 0; i < 3; i++) out.push(...tiers[i].splice(0, quota[i]));
-      // 不足分の補充順: 直近不正解 → 未消化 → 自信なし → 確信正解（学習価値の高い順）
-      for (const i of [1, 0, 2, 3]) if (out.length < count) out.push(...tiers[i].splice(0, count - out.length));
-      return this.shuffle(out, rng);
-    }
+    // 優先順: 不正解 → 未消化 → 自信なし → 正解。同じ状態の中では出題回数が少ない順（それも同じならランダム）
+    const times = q => (questionStats && questionStats.get(q.id)?.times) || 0;
+    pool.sort((a, b) => this.STATUS_ORDER[st(a)] - this.STATUS_ORDER[st(b)] || times(a) - times(b));
     return count > 0 ? pool.slice(0, count) : pool;
   },
 
@@ -155,12 +125,11 @@ const Logic = {
       const c = byCat.get(q.category);
       c.totalQuestions++;
       const s = perQ.get(q.id);
-      if (s) {
-        c.attemptedQuestions++;
-        c.totalAttempts += s.times;
-        c.correctAttempts += s.correctCount;
-        if (s.lastCorrect === false) c.wrongNow++;
-      }
+      const st = this.status(q, perQ);
+      if (st !== "new") c.attemptedQuestions++;
+      if (st === "wrong") c.wrongNow++;
+      if (s) { c.totalAttempts += s.times; c.correctAttempts += s.correctCount; }
+      else if (st !== "new") { c.totalAttempts += 1; c.correctAttempts += st === "correct" ? 1 : 0; }
     }
     const list = [...byCat.values()].map(c => ({
       ...c,
@@ -445,11 +414,14 @@ const Logic = {
         attemptsN: 0, correctN: 0, latestCorrect: 0, wrongNow: 0, sureWrong: 0, timeSum: 0, timeN: 0 });
       const r = rows.get(key);
       r.total++;
+      const st = this.status(q, perQ);
+      if (st === "new") continue;
+      r.attempted++;
       const s = perQ.get(q.id);
-      if (!s) continue;
-      r.attempted++; r.attemptsN += s.times; r.correctN += s.correctCount;
-      const a = latest.get(q.id);
-      if (a.correct) r.latestCorrect++; else { r.wrongNow++; if (a.confidence === "sure") r.sureWrong++; }
+      if (s) { r.attemptsN += s.times; r.correctN += s.correctCount; }
+      else { r.attemptsN += 1; r.correctN += st === "correct" ? 1 : 0; }
+      if (st === "wrong") { r.wrongNow++; const a = latest.get(q.id); if (a && a.confidence === "sure") r.sureWrong++; }
+      else r.latestCorrect++;
     }
     const keyOf = new Map(usable.map(q => [q.id, q.category + "\u0000" + (q.subcategory || "")]));
     for (const a of attempts) {
@@ -488,17 +460,14 @@ const Logic = {
     const rows = this.heatmapRows(questions, attempts);
     const prio = new Map(rows.map(r => [r.category + "\u0000" + r.subcategory, r.priority]));
     const latest = this.latestAttempts(attempts);
+    const perQ = this.perQuestionStats(attempts);
     const scored = this.shuffle(questions.filter(q => Logic.usable(q)), rng).map(q => {
       const a = latest.get(q.id);
-      let bonus = 0.3;
-      if (a) {
-        if (!a.correct) bonus = a.confidence === "sure" ? 1.5 : 1.0;
-        else bonus = a.confidence === "sure" ? 0 : 0.5;
-      } else {
-        // アプリ未解答なら紙演習の手書き○×（paper_results）を代用: 直近×=0.8、2周連続×=1.2、直近○=0.2
-        const pm = this.paperMark(q);
-        if (pm === "xx") bonus = 1.2; else if (pm === "x") bonus = 0.8; else if (pm === "o") bonus = 0.2;
-      }
+      const st = this.status(q, perQ);
+      let bonus = 0.3;                                        // 未消化
+      if (st === "wrong") bonus = (a && a.confidence === "sure") ? 1.5 : (a ? 1.0 : (this.paperMark(q) === "xx" ? 1.2 : 0.9));
+      else if (st === "unsure") bonus = 0.5;
+      else if (st === "correct") bonus = a ? 0 : 0.2;        // 模試・紙で正解のみ（アプリ未解答）は少し残す
       return { q, score: (prio.get(q.category + "\u0000" + (q.subcategory || "")) || 0) + bonus };
     });
     scored.sort((a, b) => b.score - a.score);
@@ -543,6 +512,38 @@ const Logic = {
     return [...map.values()].map(r => ({ ...r, rate: Math.round(r.correct / r.total * 100) }))
       .sort((a, b) => a.date.localeCompare(b.date));
   },
+
+  /**
+   * 外部の解答結果（問題データ同梱の prior: [{source:"paper"|"mock", correct, ...}] 古い順）の直近1件。
+   * prior が無い旧データでは paper_results（○×）から組み立てる。無ければ null
+   */
+  priorOutcome(q) {
+    if (Array.isArray(q.prior) && q.prior.length) return q.prior[q.prior.length - 1];
+    const pr = (q.paper_results || []).filter(m => m === "○" || m === "×");
+    return pr.length ? { source: "paper", correct: pr[pr.length - 1] === "○" } : null;
+  },
+
+  /**
+   * 問題の学習状態（出題優先順の基礎）。アプリの解答があればそれを最優先、無ければ外部結果（模試・紙）。
+   *   "wrong"   直近の結果が不正解
+   *   "new"     記録なし（未消化）
+   *   "unsure"  アプリで迷い・勘で正解（実質未習得）
+   *   "correct" 正解（確信、または模試・紙で正解）
+   */
+  status(q, stats) {
+    const s = stats && stats.get(q.id);
+    if (s) {
+      if (s.lastCorrect === false) return "wrong";
+      if (s.lastConfidence === "unsure" || s.lastConfidence === "guess") return "unsure";
+      return "correct";
+    }
+    const p = this.priorOutcome(q);
+    if (!p) return "new";
+    return p.correct ? "correct" : "wrong";
+  },
+
+  /** 出題優先順: 不正解 → 未消化 → 自信なし → 正解 */
+  STATUS_ORDER: { wrong: 0, new: 1, unsure: 2, correct: 3 },
 
   /** 紙演習の手書き○×（paper_results）を要約: "xx"=直近2周とも×, "x"=直近×, "o"=直近○, null=記録なし */
   paperMark(q) {
@@ -609,7 +610,7 @@ const Logic = {
       return { category: c.category, score: Math.round(weakness * (1 + sureWrongRate) * c.weight * 100) / 100, appAccuracy: appAcc === null ? null : Math.round(appAcc * 100), paperXRate: paperX === null ? null : Math.round(paperX * 100), sureWrong: c.sureWrong, weight: c.weight, reasons };
     }).sort((a, b) => b.score - a.score);
     const m = this.confidenceMatrix(questions, attempts);
-    const attempted = usable.filter(q => perQ.has(q.id)).length; // 仮想ID（外部模試の取込分）は着手数に含めない
+    const attempted = usable.filter(q => this.status(q, perQ) !== "new").length; // 模試・紙の結果も着手に含める
     return {
       total: usable.length, attempted,
       coverage: usable.length ? Math.round(attempted / usable.length * 100) : 0,
