@@ -2,6 +2,10 @@
 
 const Logic = {
 
+  /** 出題対象か。図版問題（has_figure）も出題対象に含める（RF決定 2026-10-11）。
+      図データ（figure_data）が無い図版問題は本文＋「図は原本参照」注記で出題される */
+  usable(q) { return !!q && !q._disabled; },
+
   /** 問題1件のスキーマ検証。エラー文字列の配列を返す（空＝妥当） */
   validateQuestion(q) {
     const errs = [];
@@ -67,7 +71,7 @@ const Logic = {
    * ランダム出題の偏り（同じ問題ばかり出る）を防いでまんべんなく出題する。
    */
   buildQuizSet(questions, { mode, category, subcategory, count, onlyWrong, onlyUnsure, questionStats }, rng = Math.random) {
-    let pool = questions.filter(q => !q.has_figure);
+    let pool = questions.filter(q => Logic.usable(q));
     if (mode === "category" && category) {
       pool = pool.filter(q => q.category === category);
       if (subcategory) pool = pool.filter(q => q.subcategory === subcategory);
@@ -121,7 +125,7 @@ const Logic = {
     const perQ = this.perQuestionStats(attempts);
     const byCat = new Map();
     for (const q of questions) {
-      if (q.has_figure) continue;
+      if (!Logic.usable(q)) continue;
       if (!byCat.has(q.category)) {
         byCat.set(q.category, {
           category: q.category, totalQuestions: 0, attemptedQuestions: 0,
@@ -266,7 +270,7 @@ const Logic = {
    * 各分野の割当は比例配分→端数は大きい順に配る。分野内は出題回数の少ない問題を優先し、同回数内はランダム。
    */
   buildMockSet(questions, count, questionStats, rng = Math.random) {
-    const pool = questions.filter(q => !q.has_figure);
+    const pool = questions.filter(q => Logic.usable(q));
     if (count <= 0 || count >= pool.length) return this.shuffle(pool, rng);
     const byCat = new Map();
     for (const q of pool) {
@@ -360,7 +364,7 @@ const Logic = {
   /** 本日復習すべき問題（nextDue到来）。期限超過が大きい順。has_figure は除外 */
   srsDueQuestions(questions, attempts, now = Date.now()) {
     const states = this.srsStates(attempts);
-    return questions.filter(q => !q.has_figure && states.has(q.id) && states.get(q.id).nextDue <= now)
+    return questions.filter(q => Logic.usable(q) && states.has(q.id) && states.get(q.id).nextDue <= now)
       .sort((a, b) => states.get(a.id).nextDue - states.get(b.id).nextDue);
   },
 
@@ -387,7 +391,7 @@ const Logic = {
     const latestAny = this.latestAttempts(attempts);
     const m = { sureCorrect: [], guessCorrect: [], sureWrong: [], guessWrong: [], noConfCorrect: [], noConfWrong: [] };
     for (const q of questions) {
-      if (q.has_figure) continue;
+      if (!Logic.usable(q)) continue;
       const a = latestConf.get(q.id);
       if (a) {
         if (a.confidence === "sure") (a.correct ? m.sureCorrect : m.sureWrong).push(q.id);
@@ -408,7 +412,7 @@ const Logic = {
    * 未着手の小分類は最新正答率を0.5（未知）として中位に置く。
    */
   heatmapRows(questions, attempts) {
-    const usable = questions.filter(q => !q.has_figure);
+    const usable = questions.filter(q => Logic.usable(q));
     const perQ = this.perQuestionStats(attempts);
     const latest = this.latestAttempts(attempts);
     const catCount = new Map();
@@ -464,7 +468,7 @@ const Logic = {
     const rows = this.heatmapRows(questions, attempts);
     const prio = new Map(rows.map(r => [r.category + "\u0000" + r.subcategory, r.priority]));
     const latest = this.latestAttempts(attempts);
-    const scored = this.shuffle(questions.filter(q => !q.has_figure), rng).map(q => {
+    const scored = this.shuffle(questions.filter(q => Logic.usable(q)), rng).map(q => {
       const a = latest.get(q.id);
       let bonus = 0.3;
       if (a) {
@@ -487,7 +491,7 @@ const Logic = {
    * 「正解でも時間超過傾向」＝CBT時間管理上の要注意分野。
    */
   timeDistribution(questions, attempts, budgetSec) {
-    const catOf = new Map(questions.filter(q => !q.has_figure).map(q => [q.id, q.category]));
+    const catOf = new Map(questions.filter(q => Logic.usable(q)).map(q => [q.id, q.category]));
     const byCat = new Map();
     for (const a of attempts) {
       const cat = catOf.get(a.question_id);
@@ -532,7 +536,7 @@ const Logic = {
   paperStats(questions) {
     const map = new Map();
     for (const q of questions) {
-      if (q.has_figure) continue;
+      if (!Logic.usable(q)) continue;
       const pm = this.paperMark(q);
       if (!pm) continue;
       if (!map.has(q.category)) map.set(q.category, { marked: 0, latestX: 0, xx: 0 });
@@ -551,7 +555,7 @@ const Logic = {
    */
   trendSummary(questions, attempts, now = Date.now()) {
     const DAY = 86400000;
-    const usable = questions.filter(q => !q.has_figure);
+    const usable = questions.filter(q => Logic.usable(q));
     const perQ = this.perQuestionStats(attempts);
     const mocks = this.mockSeries(attempts);
     const latestMock = mocks[mocks.length - 1] || null;
