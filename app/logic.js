@@ -77,10 +77,40 @@ const Logic = {
     if (onlyWrong || onlyUnsure) {
       pool = pool.filter(q => (onlyWrong && st(q) === "wrong") || (onlyUnsure && st(q) === "unsure"));
     }
-    pool = this.shuffle(pool, rng);
-    // 優先順: 未消化・不正解 ＞ 自信なし ＞ 正解済。同じ段の中は純粋にランダム
-    pool.sort((a, b) => this.STATUS_ORDER[st(a)] - this.STATUS_ORDER[st(b)]);
-    return count > 0 ? pool.slice(0, count) : pool;
+    // 優先順: 未消化・不正解 ＞ 自信なし ＞ 正解済。同じ段の中は、過去の正答率が低い問題ほど出やすい重み付きランダム
+    // （重み = 1 + 2×(1−正答率)。全敗=3、記録なし=2（正答率0.5扱い）、全勝=1。正答率はアプリの解答＋紙・模試の記録で計算）
+    const tiers = [[], [], []];
+    for (const q of pool) tiers[this.STATUS_ORDER[st(q)]].push(q);
+    const out = [];
+    for (const t of tiers) {
+      if (count > 0 && out.length >= count) break;
+      const need = count > 0 ? count - out.length : t.length;
+      out.push(...this.weightedSample(t, need, q => 1 + 2 * (1 - this.accuracy(q, questionStats)), rng));
+    }
+    return out;
+  },
+
+  /** 問題の通算正答率（アプリの解答＋prior の紙・模試）。記録なしは 0.5 扱い（重みは中間） */
+  accuracy(q, stats) {
+    const s = stats && stats.get(q.id);
+    const prior = Array.isArray(q.prior) ? q.prior : [];
+    const n = (s ? s.times : 0) + prior.length;
+    if (!n) return 0.5;
+    const c = (s ? s.correctCount : 0) + prior.filter(p => p.correct).length;
+    return c / n;
+  },
+
+  /** 重み付き非復元サンプリング。weightFn(q) > 0 */
+  weightedSample(list, k, weightFn, rng = Math.random) {
+    const items = list.map(q => ({ q, w: Math.max(0.01, weightFn(q)) }));
+    const out = [];
+    while (out.length < k && items.length) {
+      let total = 0; for (const it of items) total += it.w;
+      let r = rng() * total, i = 0;
+      for (; i < items.length - 1; i++) { r -= items[i].w; if (r <= 0) break; }
+      out.push(items.splice(i, 1)[0].q);
+    }
+    return out;
   },
 
   /**

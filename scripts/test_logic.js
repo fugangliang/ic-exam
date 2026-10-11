@@ -166,7 +166,20 @@ for (let t = 0; t < 40; t++) {
   const top = Logic.buildQuizSet(stPool, { mode: "random", count: 1, questionStats: stStats }, Math.random)[0];
   if (top.id === "s-app-wrong" || top.id === "s-paper-ok-then-app-wrong") firstApp++;
 }
-assert.ok(firstApp >= 8 && firstApp <= 32, "アプリ不正解が先頭に来る回数が偏っている: " + firstApp); // 期待値 20/40
+assert.ok(firstApp >= 6 && firstApp <= 34, "アプリ不正解が先頭に来る回数が偏っている: " + firstApp);
+
+// accuracy / 重み付き: 正答率が低い問題ほど出やすい（同じ段の中で）
+assert.strictEqual(Logic.accuracy(q("x", "A", "s"), new Map()), 0.5);
+assert.strictEqual(Logic.accuracy(q("x", "A", "s", { prior: [{ source: "paper", correct: false }, { source: "mock", correct: true }] }), new Map()), 0.5);
+const accStats = Logic.perQuestionStats([{ question_id: "x", correct: false, timestamp: 1, confidence: "sure" }]);
+assert.strictEqual(Logic.accuracy(q("x", "A", "s", { prior: [{ source: "paper", correct: false }] }), accStats), 0);
+let lowFirst = 0;
+const wPool = [q("low", "A", "s", { prior: [{ source: "paper", correct: false }, { source: "paper", correct: false }] }), q("high", "A", "s")]; // 両方とも段0（不正解・未消化）
+for (let t = 0; t < 300; t++) if (Logic.buildQuizSet(wPool, { mode: "random", count: 1, questionStats: new Map() }, Math.random)[0].id === "low") lowFirst++;
+assert.ok(lowFirst > 150 && lowFirst < 210, "全敗（重み3）: 未消化（重み2）= 3:2 で約60%のはず: " + lowFirst); // 期待 180/300
+// weightedSample: 件数・重複なし
+const ws = Logic.weightedSample([1, 2, 3, 4], 3, () => 1, rng);
+assert.strictEqual(ws.length, 3); assert.strictEqual(new Set(ws).size, 3);
 // categoryStats / trendSummary の消化数に模試・紙の結果を含める
 const cs2 = Logic.categoryStats(stPool, [{ question_id: "s-app-sure", correct: true, timestamp: 1, confidence: "sure" }]);
 assert.strictEqual(cs2[0].attemptedQuestions, 5); // app1 + mock2 + paper2
