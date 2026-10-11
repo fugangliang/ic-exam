@@ -78,9 +78,9 @@ const Logic = {
       pool = pool.filter(q => (onlyWrong && st(q) === "wrong") || (onlyUnsure && st(q) === "unsure"));
     }
     pool = this.shuffle(pool, rng);
-    // 優先順: 不正解 → 未消化 → 自信なし → 正解。同じ状態の中では出題回数が少ない順（それも同じならランダム）
-    const times = q => (questionStats && questionStats.get(q.id)?.times) || 0;
-    pool.sort((a, b) => this.STATUS_ORDER[st(a)] - this.STATUS_ORDER[st(b)] || times(a) - times(b));
+    // 優先順: 不正解 → 未消化 → 自信なし → 正解。同じ状態の中は純粋にランダム
+    // （出題回数で並べると、アプリ未解答の模試・紙の不正解が先頭に固まるため並べない。RF指摘 2026-10-11）
+    pool.sort((a, b) => this.STATUS_ORDER[st(a)] - this.STATUS_ORDER[st(b)]);
     return count > 0 ? pool.slice(0, count) : pool;
   },
 
