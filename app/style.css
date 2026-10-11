@@ -239,3 +239,4 @@ td.heat { text-align: center; font-weight: 600; border-radius: 4px; }
 .figure-img.zoom { max-width: none; width: 180%; cursor: zoom-out; }
 .figure-box:has(.zoom) { overflow-x: auto; }
 .figure-cap { color: var(--muted); font-size: .8rem; margin-top: 4px; text-align: center; }
+.app-ver { text-align: right; font-size: .75rem; }

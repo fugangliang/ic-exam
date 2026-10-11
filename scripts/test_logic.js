@@ -146,6 +146,21 @@ const prStats = Logic.perQuestionStats([
   // r4 は未消化
 ]);
 assert.deepStrictEqual(Logic.buildQuizSet(prPool, { mode: "random", count: 0, questionStats: prStats }, rng).map(q => q.id), ["r4", "r2", "r3", "r1"]);
+// 件数指定時は 未消化5:不正解3:自信なし2 の配分で混ぜる（不足は繰り上げ、最後は確信正解で補充）
+const mixPool = [];
+for (let i = 0; i < 10; i++) mixPool.push(q(`n${i}`, "A", "s"));                       // 未消化10
+for (let i = 0; i < 10; i++) mixPool.push(q(`w${i}`, "A", "s"));                       // 不正解10
+for (let i = 0; i < 1; i++) mixPool.push(q(`u${i}`, "A", "s"));                        // 自信なし1
+for (let i = 0; i < 10; i++) mixPool.push(q(`c${i}`, "A", "s"));                       // 確信正解10
+const mixAtt = [];
+for (let i = 0; i < 10; i++) mixAtt.push({ question_id: `w${i}`, correct: false, timestamp: 1, confidence: "sure" });
+mixAtt.push({ question_id: "u0", correct: true, timestamp: 1, confidence: "guess" });
+for (let i = 0; i < 10; i++) mixAtt.push({ question_id: `c${i}`, correct: true, timestamp: 1, confidence: "sure" });
+const mix = Logic.buildQuizSet(mixPool, { mode: "random", count: 10, questionStats: Logic.perQuestionStats(mixAtt) }, rng);
+const kind = p => mix.filter(x => x.id.startsWith(p)).length;
+assert.strictEqual(mix.length, 10);
+assert.deepStrictEqual([kind("n"), kind("w"), kind("u"), kind("c")], [5, 4, 1, 0]); // 自信なしの不足1件は不正解で補充（確信正解は最後）
+
 
 // explanationHighlightKey: 括弧書き（読み仮名等）を除いた本体を返す
 assert.strictEqual(Logic.explanationHighlightKey("卓袱台（ちゃぶだい）"), "卓袱台");

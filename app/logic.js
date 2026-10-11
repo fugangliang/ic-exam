@@ -88,16 +88,28 @@ const Logic = {
     if (onlyWrong || onlyUnsure) {
       if (questionStats) pool.sort((a, b) => questionStats.get(b.id).wrongCount - questionStats.get(a.id).wrongCount);
     } else if (questionStats) {
-      // 絞り込みなしの通常出題の優先順（RF指示 2026-10-11）: 未消化 → 直近不正解 → 自信なし（迷い・勘）で正解 → その他。
-      // 同順位では出題回数が少ない問題を優先（偏り防止）。紙演習・模試の記録も attempts として反映済みの前提
-      const rank = q => {
+      // 絞り込みなしの通常出題（RF指示 2026-10-11）: 1セットに「未消化」「直近不正解」「自信なし（迷い・勘）で正解」を
+      // 5:3:2 で混ぜる。該当が不足する種類の枠は次の種類に繰り上げ、それでも足りなければ「確信正解」で埋める。
+      // 各種類の中では出題回数が少ない問題を優先（偏り防止）。紙演習・模試の記録も attempts として反映済みの前提
+      const tier = q => {
         const s = questionStats.get(q.id);
         if (!s) return 0;
         if (s.lastCorrect === false) return 1;
         if (s.lastConfidence === "unsure" || s.lastConfidence === "guess") return 2;
         return 3;
       };
-      pool.sort((a, b) => rank(a) - rank(b) || (questionStats.get(a.id)?.times || 0) - (questionStats.get(b.id)?.times || 0));
+      const byTimes = (a, b) => (questionStats.get(a.id)?.times || 0) - (questionStats.get(b.id)?.times || 0);
+      const tiers = [[], [], [], []];
+      for (const q of pool) tiers[tier(q)].push(q);
+      tiers.forEach(t => t.sort(byTimes));
+      if (count <= 0) return tiers.flat();
+      const quota = [Math.round(count * 0.5), Math.round(count * 0.3), 0, 0];
+      quota[2] = count - quota[0] - quota[1];
+      const out = [];
+      for (let i = 0; i < 3; i++) out.push(...tiers[i].splice(0, quota[i]));
+      // 不足分の補充順: 直近不正解 → 未消化 → 自信なし → 確信正解（学習価値の高い順）
+      for (const i of [1, 0, 2, 3]) if (out.length < count) out.push(...tiers[i].splice(0, count - out.length));
+      return this.shuffle(out, rng);
     }
     return count > 0 ? pool.slice(0, count) : pool;
   },
