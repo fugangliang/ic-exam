@@ -79,12 +79,12 @@
           <option value="0">全問</option>
         </select>
       </label>
-      <p id="count-note" class="muted">※ 1セットに「未消化」「直近不正解」「自信なしで正解」を 5:3:2 で混ぜます（不足分は不正解→未消化の順で補充。同じ出典は3割まで）。紙演習・模試の記録も反映</p>
+      <p id="count-note" class="muted">※ 1セットに「未消化」「直近不正解」「自信なしで正解」を 5:3:2 で混ぜます（不足分は不正解→未消化の順で補充）。紙演習・模試の記録も反映</p>
     </div>
 
     <button id="btn-start" class="primary-btn">開始</button>
     <p id="home-message" class="muted"></p>
-    <p class="muted app-ver">アプリ版 v13（2026-10-11）</p>
+    <p class="muted app-ver">アプリ版 v14（2026-10-11）</p>
   </div>
 </section>
 
@@ -167,7 +167,7 @@
 
   <div class="card">
     <h2>バックアップ復元</h2>
-    <p class="muted">exportファイルから問題＋解答履歴を復元</p>
+    <p class="muted">exportファイル／記録ファイルから問題＋解答履歴を復元。同じ記録は二重に入らない</p>
     <input type="file" id="file-restore" accept=".json,application/json">
     <p id="restore-result" class="muted"></p>
   </div>
