@@ -812,13 +812,17 @@
       const parsed = JSON.parse(await file.text());
       const { questions: valid, attempts, errors } = Logic.normalizeImport(parsed);
       if (!attempts) throw new Error("attempts を含むexportファイルではありません");
-      if (!confirm(`問題${valid.length}問・履歴${attempts.length}件を復元します。履歴は既存に追加されます（重複注意）。実行しますか？`)) {
+      // 既に入っている記録（question_id＋timestamp＋mode が同一）は追加しない＝同じファイルを2回復元しても二重にならない
+      const existing = new Set((await DB.getAllAttempts()).map(a => `${a.question_id}|${a.timestamp}|${a.mode || ""}`));
+      const fresh = attempts.filter(a => !existing.has(`${a.question_id}|${a.timestamp}|${a.mode || ""}`));
+      const dup = attempts.length - fresh.length;
+      if (!confirm(`問題${valid.length}問・履歴${fresh.length}件を復元します${dup ? `（既存と重複する${dup}件は除外）` : ""}。実行しますか？`)) {
         e.target.value = ""; return;
       }
       await DB.upsertQuestions(valid);
-      await DB.restoreAttempts(attempts);
+      await DB.restoreAttempts(fresh);
       $("#restore-result").textContent =
-        `復元完了: 問題${valid.length}問・履歴${attempts.length}件` +
+        `復元完了: 問題${valid.length}問・履歴${fresh.length}件${dup ? `（重複${dup}件は除外）` : ""}` +
         (errors.length ? `／問題スキップ${errors.length}件` : "");
       await refreshHome();
     } catch (err) {

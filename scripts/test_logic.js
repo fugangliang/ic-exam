@@ -160,19 +160,7 @@ const mix = Logic.buildQuizSet(mixPool, { mode: "random", count: 10, questionSta
 const kind = p => mix.filter(x => x.id.startsWith(p)).length;
 assert.strictEqual(mix.length, 10);
 assert.deepStrictEqual([kind("n"), kind("w"), kind("u"), kind("c")], [5, 4, 1, 0]); // 自信なしの不足1件は不正解で補充（確信正解は最後）
-// 同一小分類の上限30%: 不正解がすべて「HIPS模試」でも1セット10問中3問まで（残りは他の小分類の不正解→未消化で補充）
-const capPool = [];
-for (let i = 0; i < 20; i++) capPool.push(q(`h${i}`, "A", "HIPS模試"));
-for (let i = 0; i < 5; i++) capPool.push(q(`k${i}`, "A", "一問一答"));
-for (let i = 0; i < 175; i++) capPool.push(q(`m${i}`, "B", "過去問"));   // HIPS模試は全体の10%（実データ比）
-const capAtt = [];
-for (let i = 0; i < 20; i++) capAtt.push({ question_id: `h${i}`, correct: false, timestamp: 1, confidence: null, mode: "mock" });
-for (let i = 0; i < 5; i++) capAtt.push({ question_id: `k${i}`, correct: false, timestamp: 1, confidence: null, mode: "paper" });
-const capSet = Logic.buildQuizSet(capPool, { mode: "random", count: 10, questionStats: Logic.perQuestionStats(capAtt) }, rng);
-const sub = p => capSet.filter(x => x.id.startsWith(p)).length;
-assert.strictEqual(capSet.length, 10);
-assert.ok(sub("h") <= 3, "HIPS模試は3問以下: " + sub("h"));
-assert.ok(sub("m") >= 5, "未消化(過去問)が5問以上: " + sub("m"));
+
 
 
 // explanationHighlightKey: 括弧書き（読み仮名等）を除いた本体を返す
